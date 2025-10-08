@@ -12,7 +12,9 @@ allow = [
     "ISC",
     "GPL-3.0",
     "Unicode-3.0",
-    "0BSD"
+    "0BSD",
+    "CDLA-Permissive-2.0",
+    "MPL-2.0"
 ]
 
 # Confidence threshold for detecting a license from a license text
