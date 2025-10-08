@@ -19,11 +19,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 
-dirs = "5.0"
 regex = "1.10"
 shellwords = "1.1"
-signal-hook = "0.3"
-signal-hook-tokio = { version = "0.3", features = ["futures-v0_3"] }
 fastrand = "2.0"
 lettre = { version = "0.11", features = ["tokio1-native-tls", "smtp-transport", "builder"] }
 reqwest = { version = "0.11", features = ["json"] }
