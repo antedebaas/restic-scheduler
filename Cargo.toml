@@ -1,10 +1,10 @@
 [package]
 name = "restic-scheduler"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["Restic Scheduler Contributors"]
 description = "Automatic restic backup scheduler"
-license = "GPL-3.0"
+license = "GPL-3.0-only"
 repository = "https://github.com/antedebaas/restic-scheduler"
 keywords = ["backup", "restic", "scheduler", "automation"]
 categories = ["command-line-utilities", "filesystem"]

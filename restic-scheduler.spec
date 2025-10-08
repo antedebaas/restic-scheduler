@@ -1,5 +1,5 @@
 Name:           restic-scheduler
-Version:        0.1.0
+Version:        0.1.1
 Release:        1%{?dist}
 Summary:        Automatic restic backup scheduler
 
@@ -133,11 +133,5 @@ if [ $1 -eq 0 ]; then
 fi
 
 %changelog
-* Thu Jan 16 2025 Restic Scheduler Contributors <maintainer@example.com> - 0.1.0-1
-- Initial RPM package for restic-scheduler
-- Automatic backup scheduler
-- Support for multiple backup profiles
-- Email and webhook notifications
-- Backup statistics and logging
-- Repository integrity checks
-- Systemd integration with service and timer units
+* Wed Oct 8 2025 Ante de Baas <antedebaas@users.github.com> - 0.1.1-1
+- Initial RPM package
