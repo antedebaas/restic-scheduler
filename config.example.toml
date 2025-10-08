@@ -1,0 +1,177 @@
+# Restic Scheduler Configuration
+# This configuration file supports Backblaze B2 and S3-compatible storage backends.
+# Copy this file to /etc/restic-scheduler/config.toml and customize it for your needs.
+
+[global]
+# Verbosity level from 0-3. 0 means minimal output, 3 means very verbose.
+verbosity_level = 1
+
+# Directory for backup statistics logs (used for Json and Logfile formats)
+stats_dir = "/var/log/restic-scheduler"
+
+# Statistics logging format - choose one:
+# "Json" - Log statistics to JSON Lines files (.jsonl) in stats_dir
+# "Stdout" - Log statistics as structured log events to stdout (for log aggregation systems)
+# "Logfile" - Log statistics as structured log events to profile-named log files in stats_dir
+stats_format = "Json"
+
+# Default profile using Backblaze B2
+[profiles.default]
+repository = "b2:my-backup-bucket"
+backup_paths = [
+    "/home",
+    "/etc",
+    "/opt/important-data"
+]
+# Tags to identify backup snapshots (multiple tags supported)
+backup_tags = ["daily-backup", "automated"]
+
+# Repository encryption password - choose ONE method
+# Option 1: Direct password (not recommended for production)
+encryption_password = "your-secure-password-here"
+# Option 2: Get password from external command (recommended)
+# encryption_password_command = "pass show restic/default"
+
+# Exclude patterns (files and directories to exclude from backup)
+exclude_patterns = [
+    # System directories
+    "/dev/*",
+    "/proc/*", 
+    "/sys/*",
+    "/tmp/*",
+    "/run/*",
+    "/mnt/*",
+    "/media/*",
+    
+    # Cache directories
+    "**/.cache/",
+    "**/node_modules/",
+    "**/__pycache__/",
+    "**/.git/objects/",
+    "**/target/debug/",
+    "**/target/release/",
+    
+    # Temporary files
+    "*.tmp",
+    "*.temp",
+    "*.log",
+    "*.swp",
+    "*.swo",
+    "*~",
+    
+    # OS specific
+    ".DS_Store",
+    "Thumbs.db",
+    "desktop.ini",
+    
+    # Profile-specific patterns
+    "/home/*/.local/share/Trash/",
+    "/home/*/Downloads/*.iso"
+]
+
+# Extra arguments to pass to restic backup command
+backup_extra_args = [
+    "--exclude-if-present", ".nobackup",
+    "--exclude-caches"
+]
+
+# Pre-backup command for this profile (optional)
+pre_backup_command = "systemctl stop myservice"
+
+# Retention policy - how many backups to keep
+[profiles.default.retention]
+hours = 24    # Keep hourly backups for 24 hours
+days = 14     # Keep daily backups for 14 days
+weeks = 8     # Keep weekly backups for 8 weeks
+months = 12   # Keep monthly backups for 12 months
+years = 5     # Keep yearly backups for 5 years
+
+# Backblaze B2 configuration
+[profiles.default.backend.b2]
+account_id = "your-b2-key-id"
+account_key = "your-b2-application-key"
+connections = 10  # Number of concurrent connections
+
+# Repository check settings (always full verification)
+[profiles.default.check]
+enabled = true
+extra_args = []
+
+# Notification settings
+[profiles.default.notifications]
+
+# Email notifications
+[profiles.default.notifications.email]
+notify_on_success = false  # Set to true if you want success notifications
+notify_on_failure = true   # Always recommended
+smtp_server = "smtp.gmail.com"
+smtp_port = 587
+smtp_username = "your-email@gmail.com"
+smtp_password = "your-app-password"  # Use app password for Gmail
+from = "your-email@gmail.com"
+to = ["admin@example.com", "backup-admin@example.com"]
+use_tls = true
+
+# S3-compatible backup profile
+[profiles.s3-backup]
+repository = "s3:my-backup-bucket/restic"
+backup_paths = [
+    "/home/user/documents",
+    "/home/user/pictures",
+    "/var/www"
+]
+backup_tags = ["s3-backup", "cloud", "weekly"]
+
+# Using external command to get password (recommended)
+encryption_password_command = "pass show restic/s3-backup"
+
+exclude_patterns = [
+    # System directories
+    "/dev/*",
+    "/proc/*", 
+    "/sys/*",
+    "/tmp/*",
+    "/run/*",
+    
+    # Profile-specific patterns
+    "**/.git/",
+    "**/target/",
+    "**/*.tmp",
+    "**/access.log*"
+]
+
+backup_extra_args = ["--exclude-if-present", ".git"]
+
+# Different pre-backup command for this profile
+pre_backup_command = "docker stop myapp"
+
+[profiles.s3-backup.retention]
+hours = 0     # No hourly backups
+days = 30     # Keep daily backups for 30 days
+weeks = 12    # Keep weekly backups for 12 weeks
+months = 12   # Keep monthly backups for 12 months
+years = 10    # Keep yearly backups for 10 years
+
+# S3-compatible service configuration
+[profiles.s3-backup.backend.s3]
+access_key_id = "your-access-key-id"
+secret_access_key = "your-secret-access-key"
+region = "us-east-1"
+endpoint = "https://s3.example.com"  # Your S3-compatible service endpoint
+path_style = true  # Set to true for S3-compatible services that require path-style
+
+[profiles.s3-backup.check]
+enabled = true
+extra_args = []
+
+# Webhook notifications for this profile
+[profiles.s3-backup.notifications]
+notify_on_success = false
+notify_on_failure = true
+
+[profiles.s3-backup.notifications.webhook]
+url = "https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK"
+method = "POST"
+timeout = 30
+# Additional headers (Content-Type: application/json is set automatically)
+headers = { "Authorization" = "Bearer your-token" }

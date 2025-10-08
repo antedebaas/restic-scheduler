@@ -1,0 +1,34 @@
+[Unit]
+Description=Restic Backup (%i profile)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=restic-scheduler
+Group=restic-scheduler
+
+# Backup command with profile
+ExecStart=/usr/bin/restic-scheduler --profile %i backup --random-delay 300 --skip-if-running
+
+# Resource limits
+Nice=10
+IOSchedulingClass=2
+IOSchedulingPriority=7
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+# Timeout settings
+TimeoutStopSec=30
+
+# Logging
+SyslogIdentifier=restic-backup@%i
+
+[Install]
+# This is a template unit, don't enable directly
+# Use: systemctl enable restic-backup@default.service

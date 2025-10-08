@@ -1,0 +1,404 @@
+# CI Workflow for restic-scheduler
+# 
+# Required GitHub Variables:
+# - PACKAGE_NAME: Name of the package (e.g., "restic-scheduler")
+#
+# Required GitHub Secrets:
+# - CARGO_REGISTRY_TOKEN: Token for publishing to crates.io
+# - COPR_PROJECT_ID: COPR project ID for Fedora package builds
+# - COPR_WEBHOOK_KEY: COPR webhook authentication key
+#
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*.*.*' ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get -y install libssl-dev pkg-config
+
+      - name: Cache cargo dependencies
+        id: cache-cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+
+      - name: Check formatting
+        run: cargo fmt --check --all
+
+      - name: Run clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Build
+        run: cargo build --all-features --all-targets
+
+      - name: Run tests
+        run: cargo test --all-features
+
+  code-quality:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    needs: test
+    
+    steps:
+      - uses: actions/checkout@v5
+      
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get -y install libssl-dev pkg-config
+      
+      - name: Update rust toolchain
+        run: rustup update
+      
+      - name: Install rustfmt and clippy
+        run: rustup component add rustfmt clippy
+      
+      - name: Cache cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-quality-${{ hashFiles('Cargo.lock') }}
+      
+      - name: Check for unused dependencies
+        run: |
+          cargo install cargo-machete
+          cargo machete
+      
+      - name: Check documentation
+        run: cargo doc --no-deps --document-private-items --all-features
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+      
+      - name: Verify Cargo.toml formatting
+        run: |
+          cargo install cargo-sort
+          cargo sort --check
+      
+      - name: Check for outdated dependencies
+        run: |
+          cargo install cargo-outdated
+          cargo outdated --exit-code 1 || echo "Warning: Some dependencies are outdated"
+
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    needs: test
+    
+    steps:
+      - uses: actions/checkout@v5
+      
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get -y install libssl-dev pkg-config
+      
+      - name: Update rust toolchain
+        run: rustup update
+      
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+      
+      - name: Run security audit
+        run: cargo audit
+      
+      - name: Check for known vulnerabilities
+        run: cargo audit --deny warnings
+
+  supply-chain:
+    name: Supply Chain Security
+    runs-on: ubuntu-latest
+    needs: test
+    
+    steps:
+      - uses: actions/checkout@v5
+      
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get -y install libssl-dev pkg-config
+      
+      - name: Update rust toolchain
+        run: rustup update
+      
+      - name: Install cargo-deny
+        run: cargo install cargo-deny
+      
+      - name: Check licenses and dependencies
+        run: cargo deny check
+
+  final-check:
+    name: Final Status
+    runs-on: ubuntu-latest
+    needs: [test, code-quality, security-audit, supply-chain]
+    if: always() && !startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+      - name: Check all jobs status
+        run: |
+          echo "=== CI Pipeline Results ==="
+          echo "Tests: ${{ needs.test.result }}"
+          echo "Code Quality: ${{ needs.code-quality.result }}"
+          echo "Security Audit: ${{ needs.security-audit.result }}"
+          echo "Supply Chain: ${{ needs.supply-chain.result }}"
+          echo ""
+          
+          # Check critical jobs (tests must pass)
+          if [[ "${{ needs.test.result }}" != "success" ]]; then
+            echo "FAILED: Tests failed - this is a blocking issue"
+            exit 1
+          fi
+          
+          # Check other jobs (warnings but not blocking)
+          WARNINGS=0
+          if [[ "${{ needs.code-quality.result }}" != "success" ]]; then
+            echo "WARNING: Code quality checks failed"
+            WARNINGS=$((WARNINGS + 1))
+          fi
+          
+          if [[ "${{ needs.security-audit.result }}" != "success" ]]; then
+            echo "WARNING: Security audit failed"
+            WARNINGS=$((WARNINGS + 1))
+          fi
+          
+          if [[ "${{ needs.supply-chain.result }}" != "success" ]]; then
+            echo "WARNING: Supply chain checks failed"
+            WARNINGS=$((WARNINGS + 1))
+          fi
+          
+          echo ""
+          if [[ $WARNINGS -eq 0 ]]; then
+            echo "SUCCESS: All checks passed successfully!"
+          else
+            echo "SUCCESS: Tests passed with $WARNINGS warning(s)"
+          fi
+          
+          echo "COMPLETED: CI pipeline completed"
+
+  binary-release:
+    name: Binary Release (${{ vars.PACKAGE_NAME }})
+    runs-on: ${{ matrix.platform.os }}
+    needs: [test, code-quality, security-audit, supply-chain]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    
+    strategy:
+      matrix:
+        platform:
+          - target: x86_64-unknown-linux-musl
+            name: linux-x86_64
+            cross: false
+            command: "cargo"
+            os: ubuntu-latest
+
+          - target: armv7-unknown-linux-musleabi
+            name: linux-armv7
+            cross: true
+            command: "cross"
+            os: ubuntu-latest
+
+          - target: aarch64-unknown-linux-musl
+            name: linux-aarch64
+            cross: true
+            command: "cross"
+            os: ubuntu-latest
+
+          - target: x86_64-pc-windows-gnu
+            name: windows-x86_64
+            cross: true
+            command: "cross"
+            os: ubuntu-latest
+            extension: ".exe"
+            platform_type: "windows"
+
+          - target: x86_64-apple-darwin
+            name: macos-x86_64
+            cross: false
+            command: "cargo"
+            os: macos-latest
+
+          - target: aarch64-apple-darwin
+            name: macos-aarch64
+            cross: false
+            command: "cargo"
+            os: macos-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install musl-tools (Linux)
+        if: matrix.platform.os == 'ubuntu-latest'
+        run: sudo apt update && sudo apt install -y musl-tools
+
+      - name: Update rust toolchain
+        run: rustup update
+
+      - name: Install cargo-binstall
+        if: ${{ matrix.platform.cross }}
+        uses: cargo-bins/cargo-binstall@main
+
+      - name: Add rust target
+        run: rustup target add ${{ matrix.platform.target }}
+
+      - name: Install cargo-cross
+        if: ${{ matrix.platform.cross }}
+        run: cargo binstall --no-confirm cross
+
+      - name: Build ${{ vars.PACKAGE_NAME }}
+        run: ${{ matrix.platform.command }} build --locked --release --target=${{ matrix.platform.target }}
+
+      - name: Create compressed tar archive (Unix)
+        if: matrix.platform.platform_type != 'windows'
+        run: tar -czvf ${{ vars.PACKAGE_NAME }}-${{ matrix.platform.name }}.tar.gz -C target/${{ matrix.platform.target }}/release ${{ vars.PACKAGE_NAME }}${{ matrix.platform.extension || '' }}
+
+      - name: Create zip archive (Windows)
+        if: matrix.platform.platform_type == 'windows'
+        run: |
+          cd target/${{ matrix.platform.target }}/release
+          7z a ../../../${{ vars.PACKAGE_NAME }}-${{ matrix.platform.name }}.zip ${{ vars.PACKAGE_NAME }}${{ matrix.platform.extension || '' }}
+
+      - name: Upload build artifact (Unix)
+        if: matrix.platform.platform_type != 'windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ vars.PACKAGE_NAME }}-${{ matrix.platform.name }}
+          path: ${{ vars.PACKAGE_NAME }}-${{ matrix.platform.name }}.tar.gz
+
+      - name: Upload build artifact (Windows)
+        if: matrix.platform.platform_type == 'windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ vars.PACKAGE_NAME }}-${{ matrix.platform.name }}
+          path: ${{ vars.PACKAGE_NAME }}-${{ matrix.platform.name }}.zip
+
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: binary-release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v5
+
+      - name: Attest Build Provenance
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: '*/${{ vars.PACKAGE_NAME }}-*.*'
+
+      - name: Draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          files: '*/${{ vars.PACKAGE_NAME }}-*.*'
+
+  cargo-publish:
+    name: Publish to crates.io
+    runs-on: ubuntu-latest
+    needs: [test, code-quality, security-audit, supply-chain]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    
+    environment:
+      name: crates.io
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get -y install libssl-dev pkg-config
+
+      - name: Install Rust toolchain
+        run: rustup update stable
+
+      - name: Verify version matches tag
+        run: |
+          TAG_VERSION=${GITHUB_REF#refs/tags/v}
+          CARGO_VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          
+          echo "Tag version: $TAG_VERSION"
+          echo "Cargo.toml version: $CARGO_VERSION"
+          
+          if [ "$TAG_VERSION" != "$CARGO_VERSION" ]; then
+            echo "ERROR: Version mismatch: tag $TAG_VERSION != Cargo.toml $CARGO_VERSION"
+            exit 1
+          fi
+          
+          echo "SUCCESS: Version match confirmed"
+
+      - name: Dry run publish
+        run: cargo publish --dry-run --locked
+
+      - name: Publish crate
+        run: cargo publish --locked
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  final-release-check:
+    name: Final Release Status
+    runs-on: ubuntu-latest
+    needs: [binary-release, release, cargo-publish, copr-trigger]
+    if: always() && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+      - name: Check release status
+        run: |
+          echo "=== Release Pipeline Results ==="
+          echo "Binary Release: ${{ needs.binary-release.result }}"
+          echo "GitHub Release: ${{ needs.release.result }}"
+          echo "Cargo Publish: ${{ needs.cargo-publish.result }}"
+          echo "COPR Build: ${{ needs.copr-trigger.result }}"
+          echo ""
+          
+          if [[ "${{ needs.binary-release.result }}" == "success" && \
+                "${{ needs.release.result }}" == "success" && \
+                "${{ needs.cargo-publish.result }}" == "success" ]]; then
+            echo "SUCCESS: Release completed successfully!"
+            if [[ "${{ needs.copr-trigger.result }}" == "success" ]]; then
+              echo "SUCCESS: COPR build also triggered successfully"
+            else
+              echo "WARNING: COPR build trigger failed (non-blocking)"
+            fi
+          else
+            echo "ERROR: Some release steps failed - check logs above"
+            exit 1
+          fi
+
+  copr-trigger:
+    name: Trigger COPR Build
+    runs-on: ubuntu-latest
+    needs: [test, code-quality, security-audit, supply-chain]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    
+    steps:
+      - name: Trigger COPR webhook
+        run: |
+          curl -X POST \
+            -H "Content-Type: application/json" \
+            -d '{"ref": "${{ github.ref }}", "repository": {"clone_url": "${{ github.event.repository.clone_url }}"}}' \
+            "https://copr.fedorainfracloud.org/webhooks/github/${{ secrets.COPR_PROJECT_ID }}/${{ secrets.COPR_WEBHOOK_KEY }}/${{ vars.PACKAGE_NAME }}/"
+          
+          echo "SUCCESS: COPR build triggered successfully"

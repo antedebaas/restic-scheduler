@@ -1,0 +1,12 @@
+[Unit]
+Description=Schedule Restic Repository Check (%i profile)
+Requires=restic-check@%i.service
+
+[Timer]
+# Run weekly on Sunday at 03:00 with random delay up to 2 hours
+OnCalendar=Sun *-*-* 03:00:00
+RandomizedDelaySec=2h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

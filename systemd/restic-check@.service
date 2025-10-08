@@ -1,0 +1,35 @@
+[Unit]
+Description=Restic Repository Check (%i profile)
+After=network-online.target
+Wants=network-online.target
+Conflicts=restic-backup@%i.service
+
+[Service]
+Type=oneshot
+User=restic-scheduler
+Group=restic-scheduler
+
+# Check command with profile
+ExecStart=/usr/bin/restic-scheduler --profile %i check
+
+# Resource limits (lower priority than backups)
+Nice=15
+IOSchedulingClass=3
+IOSchedulingPriority=7
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+# Timeout settings (checks can take a long time)
+TimeoutStopSec=60
+
+# Logging
+SyslogIdentifier=restic-check@%i
+
+[Install]
+# This is a template unit, don't enable directly
+# Use: systemctl enable restic-check@default.service
