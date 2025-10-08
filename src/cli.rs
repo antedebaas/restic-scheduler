@@ -10,7 +10,7 @@ use crate::stats::StatsLogger;
 
 #[derive(Debug, Parser)]
 #[command(name = "restic-scheduler")]
-#[command(about = "Automatic restic backup scheduler with TOML configuration")]
+#[command(about = "Automatic restic backup scheduler")]
 #[command(version)]
 pub struct Cli {
     /// Configuration file path

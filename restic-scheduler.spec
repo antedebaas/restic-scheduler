@@ -1,7 +1,7 @@
 Name:           restic-scheduler
 Version:        0.1.0
 Release:        1%{?dist}
-Summary:        Automatic restic backup scheduler with TOML configuration
+Summary:        Automatic restic backup scheduler
 
 License:        GPL-3.0-only
 URL:            https://github.com/antedebaas/restic-scheduler
@@ -135,7 +135,7 @@ fi
 %changelog
 * Thu Jan 16 2025 Restic Scheduler Contributors <maintainer@example.com> - 0.1.0-1
 - Initial RPM package for restic-scheduler
-- Automatic backup scheduler with TOML configuration
+- Automatic backup scheduler
 - Support for multiple backup profiles
 - Email and webhook notifications
 - Backup statistics and logging

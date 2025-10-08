@@ -1,6 +1,6 @@
 # Restic Scheduler
 
-Automatic restic backup scheduler with TOML-based configuration. A comprehensive solution for automating restic backups with support for multiple backup profiles, flexible scheduling, email and webhook notifications, backup statistics logging, repository health checks, and pre/post backup command execution.
+Automatic restic backup scheduler. A comprehensive solution for automating restic backups with support for multiple backup profiles, flexible scheduling, email and webhook notifications, backup statistics logging, repository health checks, and pre/post backup command execution.
 
 ## Features
 
