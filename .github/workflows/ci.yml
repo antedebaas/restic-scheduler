@@ -146,8 +146,6 @@ jobs:
       - name: Check licenses and dependencies
         run: cargo deny check
 
-
-
   binary-release:
     name: Binary Release (${{ vars.PACKAGE_NAME }})
     runs-on: ${{ matrix.platform.os }}
