@@ -98,11 +98,6 @@ jobs:
           cargo install cargo-sort
           cargo sort --check
 
-      - name: Check for outdated dependencies
-        run: |
-          cargo install cargo-outdated
-          cargo outdated --exit-code 1 || echo "Warning: Some dependencies are outdated"
-
   security-audit:
     name: Security Audit
     runs-on: ubuntu-latest
