@@ -309,19 +309,35 @@ impl SignalHandler {
 
         // Spawn a task to handle signals
         tokio::spawn(async move {
-            let mut sigterm = signal::unix::signal(signal::unix::SignalKind::terminate())
-                .expect("Failed to install SIGTERM handler");
-            let mut sigint = signal::unix::signal(signal::unix::SignalKind::interrupt())
-                .expect("Failed to install SIGINT handler");
+            #[cfg(unix)]
+            {
+                let mut sigterm = signal::unix::signal(signal::unix::SignalKind::terminate())
+                    .expect("Failed to install SIGTERM handler");
+                let mut sigint = signal::unix::signal(signal::unix::SignalKind::interrupt())
+                    .expect("Failed to install SIGINT handler");
 
-            tokio::select! {
-                _ = sigterm.recv() => {
-                    warn!("Received SIGTERM, initiating graceful shutdown");
-                    Self::handle_shutdown(&restic_clone, &password_clone).await;
+                tokio::select! {
+                    _ = sigterm.recv() => {
+                        warn!("Received SIGTERM, initiating graceful shutdown");
+                        Self::handle_shutdown(&restic_clone, &password_clone).await;
+                    }
+                    _ = sigint.recv() => {
+                        warn!("Received SIGINT, initiating graceful shutdown");
+                        Self::handle_shutdown(&restic_clone, &password_clone).await;
+                    }
                 }
-                _ = sigint.recv() => {
-                    warn!("Received SIGINT, initiating graceful shutdown");
-                    Self::handle_shutdown(&restic_clone, &password_clone).await;
+            }
+
+            #[cfg(windows)]
+            {
+                match signal::ctrl_c().await {
+                    Ok(()) => {
+                        warn!("Received Ctrl+C, initiating graceful shutdown");
+                        Self::handle_shutdown(&restic_clone, &password_clone).await;
+                    }
+                    Err(err) => {
+                        error!("Unable to listen for shutdown signal: {}", err);
+                    }
                 }
             }
         });
