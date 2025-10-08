@@ -85,7 +85,7 @@ jobs:
 
       - name: Check for unused dependencies
         run: |
-          cargo install cargo-machete
+          cargo install cargo-machete --force
           cargo machete
 
       - name: Check documentation
@@ -95,7 +95,7 @@ jobs:
 
       - name: Verify Cargo.toml formatting
         run: |
-          cargo install cargo-sort
+          cargo install cargo-sort --force
           cargo sort --check
 
   security-audit:
@@ -113,7 +113,7 @@ jobs:
         run: rustup update
 
       - name: Install cargo-audit
-        run: cargo install cargo-audit
+        run: cargo install cargo-audit --force
 
       - name: Run security audit
         run: cargo audit
@@ -136,7 +136,7 @@ jobs:
         run: rustup update
 
       - name: Install cargo-deny
-        run: cargo install cargo-deny
+        run: cargo install cargo-deny --force
 
       - name: Check licenses and dependencies
         run: cargo deny check
