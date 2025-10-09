@@ -62,7 +62,7 @@ export RUSTFLAGS="-Ccodegen-units=1 -Clink-dead-code=off"
 [ -f Cargo.lock ] || cargo generate-lockfile
 
 # Build with release optimizations
-cargo build --release --verbose
+cargo build --release --verbose --locked
 
 %install
 # Create directory structure
