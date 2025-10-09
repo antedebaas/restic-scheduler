@@ -1,6 +1,6 @@
 Name:           restic-scheduler
-Version:        0.1.1
-Release:        2%{?dist}
+Version:        0.1.2
+Release:        1%{?dist}
 Summary:        Automatic restic backup scheduler
 
 License:        GPL-3.0-only
@@ -133,5 +133,8 @@ if [ $1 -eq 0 ]; then
 fi
 
 %changelog
+* Thu Oct 9 2025 Ante de Baas <antedebaas@users.github.com> - 0.1.2-1
+- Fixed a bug in matching current process when checking for running instances.
+
 * Wed Oct 8 2025 Ante de Baas <antedebaas@users.github.com> - 0.1.1-1
 - Initial RPM package

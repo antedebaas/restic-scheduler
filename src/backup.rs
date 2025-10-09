@@ -372,7 +372,16 @@ pub async fn is_backup_running() -> bool {
     match Command::new("pgrep").args(["-f", "restic"]).output().await {
         Ok(output) => {
             let stdout = String::from_utf8_lossy(&output.stdout);
-            !stdout.trim().is_empty()
+            let lines: Vec<&str> = stdout.trim().lines().collect();
+
+            // Check if any processes are actual restic backups (not the scheduler)
+            for line in lines {
+                let pid: u32 = line.trim().parse().unwrap_or(0);
+                if pid != std::process::id() {
+                    return true;
+                }
+            }
+            false
         }
         Err(_) => {
             // If pgrep is not available, assume no backup is running
