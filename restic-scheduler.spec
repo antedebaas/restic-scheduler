@@ -137,4 +137,7 @@ fi
 - Fixed a bug in matching current process when checking for running instances.
 
 * Wed Oct 8 2025 Ante de Baas <antedebaas@users.github.com> - 0.1.1-1
+- Fix Windows build
+
+* Wed Oct 8 2025 Ante de Baas <antedebaas@users.github.com> - 0.1.0-1
 - Initial RPM package
