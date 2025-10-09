@@ -6,7 +6,7 @@ use std::time::Duration;
 use tokio::time::timeout;
 use tracing::{debug, error, info, warn};
 
-use crate::config::{EmailConfig, NotificationConfig, WebhookConfig};
+use crate::config::{CommandConfig, EmailConfig, NotificationConfig, WebhookConfig};
 
 #[derive(Debug, Clone)]
 pub struct NotificationMessage {
@@ -83,6 +83,32 @@ impl NotificationSender {
             } else {
                 debug!(
                     "Webhook notification skipped for {} (success: {})",
+                    message.operation, message.success
+                );
+            }
+        }
+
+        // Send command notification
+        if let Some(ref command_config) = self.config.command {
+            let should_notify_command = match message.success {
+                true => command_config.notify_on_success,
+                false => command_config.notify_on_failure,
+            };
+
+            if should_notify_command {
+                match self.send_command(command_config, &message).await {
+                    Ok(()) => {
+                        info!("Command notification executed successfully");
+                        notifications_sent += 1;
+                    }
+                    Err(e) => {
+                        error!("Failed to execute command notification: {}", e);
+                        last_error = Some(e);
+                    }
+                }
+            } else {
+                debug!(
+                    "Command notification skipped for {} (success: {})",
                     message.operation, message.success
                 );
             }
@@ -178,7 +204,7 @@ impl NotificationSender {
         debug!("Sending webhook notification to {}", config.url);
 
         let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(config.timeout))
+            .timeout(Duration::from_secs(config.timeout as u64))
             .build()
             .context("Failed to create HTTP client")?;
 
@@ -273,6 +299,71 @@ impl NotificationSender {
         }
 
         payload
+    }
+
+    /// Execute command notification
+    async fn send_command(
+        &self,
+        config: &CommandConfig,
+        message: &NotificationMessage,
+    ) -> Result<()> {
+        use std::process::Stdio;
+        use tokio::process::Command;
+
+        debug!("Executing command notification: {}", config.command);
+
+        let mut cmd = Command::new(&config.command);
+
+        // Add arguments
+        cmd.args(&config.args);
+
+        // Set standard environment variables with notification data
+        cmd.env("RESTIC_PROFILE", &self.profile_name)
+            .env("RESTIC_OPERATION", &message.operation)
+            .env(
+                "RESTIC_SUCCESS",
+                if message.success { "true" } else { "false" },
+            )
+            .env("RESTIC_MESSAGE", &message.message)
+            .env("RESTIC_TIMESTAMP", message.timestamp.to_rfc3339())
+            .env("RESTIC_SERVICE", "restic-scheduler");
+
+        if let Some(duration) = message.duration {
+            cmd.env("RESTIC_DURATION", duration.to_string());
+        }
+
+        if let Some(ref details) = message.details {
+            cmd.env("RESTIC_DETAILS", details);
+        }
+
+        // Configure stdio
+        cmd.stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .stdin(Stdio::null());
+
+        // Execute command with timeout
+        let output = timeout(Duration::from_secs(config.timeout as u64), cmd.output())
+            .await
+            .context("Command execution timeout")?
+            .context("Failed to execute command")?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            anyhow::bail!(
+                "Command failed with exit code {:?}. stdout: {}, stderr: {}",
+                output.status.code(),
+                stdout,
+                stderr
+            );
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if !stdout.trim().is_empty() {
+            debug!("Command output: {}", stdout.trim());
+        }
+
+        Ok(())
     }
 
     /// Check if this is likely a Slack webhook
@@ -372,7 +463,7 @@ pub fn create_check_notification(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{EmailConfig, NotificationConfig, WebhookConfig};
+    use crate::config::{CommandConfig, EmailConfig, NotificationConfig, WebhookConfig};
 
     fn create_test_email_config() -> EmailConfig {
         EmailConfig {
@@ -389,13 +480,22 @@ mod tests {
     }
 
     fn create_test_webhook_config() -> WebhookConfig {
-        use std::collections::HashMap;
         WebhookConfig {
             notify_on_success: false,
             notify_on_failure: true,
             url: "https://example.com/webhook".to_string(),
             method: "POST".to_string(),
-            headers: HashMap::new(),
+            headers: std::collections::HashMap::new(),
+            timeout: 30,
+        }
+    }
+
+    fn create_test_command_config() -> CommandConfig {
+        CommandConfig {
+            notify_on_success: false,
+            notify_on_failure: true,
+            command: "/bin/echo".to_string(),
+            args: vec!["notification".to_string()],
             timeout: 30,
         }
     }
@@ -416,6 +516,7 @@ mod tests {
         let config = NotificationConfig {
             email: Some(create_test_email_config()),
             webhook: None,
+            command: None,
         };
 
         let sender = NotificationSender::new(config, "test-profile".to_string());
@@ -434,6 +535,7 @@ mod tests {
         let config = NotificationConfig {
             email: None,
             webhook: Some(create_test_webhook_config()),
+            command: None,
         };
 
         let sender = NotificationSender::new(config, "test-profile".to_string());
@@ -454,6 +556,7 @@ mod tests {
         let config = NotificationConfig {
             email: None,
             webhook: Some(webhook_config),
+            command: None,
         };
 
         let sender = NotificationSender::new(config, "test-profile".to_string());
@@ -474,6 +577,7 @@ mod tests {
         let config = NotificationConfig {
             email: None,
             webhook: None,
+            command: None,
         };
 
         let _sender = NotificationSender::new(config, "test".to_string());
@@ -486,6 +590,16 @@ mod tests {
         let mut failure_message = create_test_message();
         failure_message.success = false;
         // This would need async test framework to actually test
+    }
+
+    #[test]
+    fn test_command_config_creation() {
+        let config = create_test_command_config();
+        assert_eq!(config.command, "/bin/echo");
+        assert_eq!(config.args, vec!["notification"]);
+        assert_eq!(config.timeout, 30);
+        assert!(!config.notify_on_success);
+        assert!(config.notify_on_failure);
     }
 
     #[test]

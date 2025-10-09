@@ -11,13 +11,12 @@ pub struct Config {
     pub profiles: HashMap<String, ProfileConfig>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum StatsFormat {
-    /// Log statistics to JSON Lines files (.jsonl)
+    /// Log statistics to JSON Lines files (.jsonl) (also logs to stdout)
     Json,
-    /// Log statistics as structured log events to stdout
-    Stdout,
-    /// Log statistics as structured log events to profile-named log files
+    /// Log statistics as structured log events to profile-named log files (also logs to stdout)
     Logfile,
 }
 
@@ -33,7 +32,8 @@ pub struct GlobalConfig {
     #[serde(default = "default_verbosity")]
     pub verbosity_level: u8,
 
-    /// Directory for backup statistics logs (used for Json and Logfile formats)
+    /// Directory for backup statistics logs (optional for json and logfile formats)
+    /// When specified, statistics will also be written to files in addition to stdout
     pub stats_dir: Option<PathBuf>,
 
     /// Statistics logging format
@@ -169,6 +169,9 @@ pub struct NotificationConfig {
 
     /// Webhook notification settings
     pub webhook: Option<WebhookConfig>,
+
+    /// Command notification settings
+    pub command: Option<CommandConfig>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -228,7 +231,29 @@ pub struct WebhookConfig {
 
     /// Request timeout in seconds
     #[serde(default = "default_webhook_timeout")]
-    pub timeout: u64,
+    pub timeout: u32,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct CommandConfig {
+    /// Whether to notify on successful backups
+    #[serde(default)]
+    pub notify_on_success: bool,
+
+    /// Whether to notify on backup failures
+    #[serde(default = "default_notify_on_failure")]
+    pub notify_on_failure: bool,
+
+    /// Command to execute for notifications
+    pub command: String,
+
+    /// Arguments to pass to the command
+    #[serde(default)]
+    pub args: Vec<String>,
+
+    /// Timeout for command execution in seconds
+    #[serde(default = "default_command_timeout")]
+    pub timeout: u32,
 }
 
 // Default values
@@ -275,7 +300,11 @@ fn default_smtp_tls() -> bool {
 fn default_webhook_method() -> String {
     "POST".to_string()
 }
-fn default_webhook_timeout() -> u64 {
+fn default_webhook_timeout() -> u32 {
+    30
+}
+
+fn default_command_timeout() -> u32 {
     30
 }
 

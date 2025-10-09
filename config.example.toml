@@ -6,14 +6,14 @@
 # Verbosity level from 0-3. 0 means minimal output, 3 means very verbose.
 verbosity_level = 1
 
-# Directory for backup statistics logs (used for Json and Logfile formats)
+# Directory for backup statistics logs (used for json and logfile formats)
 stats_dir = "/var/log/restic-scheduler"
 
 # Statistics logging format - choose one:
-# "Json" - Log statistics to JSON Lines files (.jsonl) in stats_dir
-# "Stdout" - Log statistics as structured log events to stdout (for log aggregation systems)
-# "Logfile" - Log statistics as structured log events to profile-named log files in stats_dir
-stats_format = "Json"
+# "json" - Log statistics to JSON Lines files (.jsonl) in stats_dir (also always logs to stdout)
+# "logfile" - Log statistics as structured log events to profile-named log files in stats_dir (also always logs to stdout)
+# Note: All logging formats always output to stdout. json and logfile formats additionally write to files if stats_dir is configured.
+stats_format = "json"
 
 # Default profile using Backblaze B2
 [profiles.default]
@@ -112,6 +112,14 @@ from = "your-email@gmail.com"
 to = ["admin@example.com", "backup-admin@example.com"]
 use_tls = true
 
+# Command notifications - execute custom commands on backup events
+[profiles.default.notifications.command]
+notify_on_success = false  # Set to true if you want success notifications
+notify_on_failure = true   # Execute command on backup failures
+command = "/usr/local/bin/notify-backup"  # Path to your notification script
+args = ["--profile", "default", "--type", "backup"]  # Arguments to pass
+timeout = 30  # Command timeout in seconds
+
 # S3-compatible backup profile
 [profiles.s3-backup]
 repository = "s3:my-backup-bucket/restic"
@@ -175,3 +183,11 @@ method = "POST"
 timeout = 30
 # Additional headers (Content-Type: application/json is set automatically)
 headers = { "Authorization" = "Bearer your-token" }
+
+# Command notifications for S3 profile
+[profiles.s3-backup.notifications.command]
+notify_on_success = true   # Notify on successful S3 backups
+notify_on_failure = true   # Notify on failed S3 backups
+command = "/usr/local/bin/s3-backup-notify"
+args = ["--webhook", "--discord"]
+timeout = 60

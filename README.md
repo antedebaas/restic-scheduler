@@ -1,13 +1,13 @@
 # Restic Scheduler
 
-Automatic restic backup scheduler. A comprehensive solution for automating restic backups with support for multiple backup profiles, flexible scheduling, email and webhook notifications, backup statistics logging, repository health checks, and pre/post backup command execution.
+Automatic restic backup scheduler. A comprehensive solution for automating restic backups with support for multiple backup profiles, flexible scheduling, email, webhook, and command notifications, backup statistics logging, repository health checks, and pre/post backup command execution.
 
 ## Features
 
 - **Multiple Backup Profiles**: Configure different backup strategies for different data sets
 - **Backend Support**: Backblaze B2 and S3-compatible storage backends
 - **Flexible Configuration**: TOML-based configuration with environment variable support
-- **Notification System**: Email and webhook notifications for backup success/failure
+- **Notification System**: Email, webhook, and custom command notifications for backup success/failure
 - **Statistics Logging**: Track backup performance and history with JSON, stdout, or log file output
 - **Repository Health Checks**: Automated integrity verification
 - **Pre/Post Commands**: Execute custom commands before and after backups
@@ -37,6 +37,18 @@ cargo install restic-scheduler
 
 RPM packages are available through COPR. The package includes systemd service files and proper user/group setup.
 
+After installing the RPM package, you need to enable the systemd timers for your desired profiles:
+
+```bash
+# Enable daily backups for default profile
+sudo systemctl enable restic-backup@default.timer
+sudo systemctl start restic-backup@default.timer
+
+# Enable weekly repository checks
+sudo systemctl enable restic-check@default.timer
+sudo systemctl start restic-check@default.timer
+```
+
 ## Configuration
 
 Copy the example configuration to `/etc/restic-scheduler/config.toml` and customize it for your needs:
@@ -56,7 +68,7 @@ The configuration file supports:
 - **Multiple Profiles**: Each with its own repository, paths, and settings
 - **Backend Configuration**: B2 or S3-compatible storage settings
 - **Retention Policies**: Hourly, daily, weekly, monthly, and yearly retention
-- **Notifications**: Email SMTP and webhook configurations
+- **Notifications**: Email SMTP, webhook, and custom command configurations
 - **Repository Checks**: Integrity verification settings
 
 ### Example Profile Configuration
@@ -89,6 +101,12 @@ smtp_password = "your-app-password"
 from = "your-email@gmail.com"
 to = ["admin@example.com"]
 use_tls = true
+
+[profiles.default.notifications.command]
+notify_on_failure = true
+command = "/usr/local/bin/notify-backup"
+args = ["--profile", "default", "--slack"]
+timeout = 30
 ```
 
 ## Usage
@@ -102,11 +120,7 @@ restic-scheduler backup
 # Backup with specific profile
 restic-scheduler --profile s3-backup backup
 
-# Add random delay before backup (useful for cron jobs)
-restic-scheduler backup --random-delay 300
-
-# Skip backup if another restic process is running
-restic-scheduler backup --skip-if-running
+# Backups automatically skip if another restic process is running
 
 # Check repository integrity
 restic-scheduler check
@@ -146,6 +160,12 @@ restic-scheduler test-connection
 
 # Show system information
 restic-scheduler info
+
+# Unlock repository (remove stale locks)
+restic-scheduler unlock
+
+# Unlock all profiles
+restic-scheduler unlock --all-profiles
 ```
 
 ### Configuration Options
@@ -201,11 +221,8 @@ Statistics are saved as JSON Lines files in the configured directory:
 tail -f /var/log/restic-scheduler/default.jsonl
 ```
 
-### Stdout Format
-Structured log events sent to stdout for log aggregation systems like ELK stack or Prometheus.
-
 ### Logfile Format
-Structured log events saved to profile-named files in the statistics directory.
+Structured log events saved to profile-named files in the statistics directory. All formats also output to stdout for log aggregation systems like ELK stack or Prometheus.
 
 ### Statistics Commands
 

@@ -1,5 +1,5 @@
 Name:           restic-scheduler
-Version:        0.1.2
+Version:        0.2.0
 Release:        1%{?dist}
 Summary:        Automatic restic backup scheduler
 
@@ -116,13 +116,32 @@ if [ $1 -eq 1 ]; then
     chmod 640 %{_sysconfdir}/%{name}/config.toml 2>/dev/null || true
     chown %{name}:%{name} %{_sysconfdir}/%{name}/config.toml 2>/dev/null || true
 fi
-%systemd_post restic-backup@.service restic-backup@.timer restic-check@.service restic-check@.timer
+# Note: Template units are not enabled by default
+# To enable for a specific profile, run:
+# systemctl enable restic-backup@PROFILE.timer
+# systemctl enable restic-check@PROFILE.timer
+systemctl daemon-reload
 
 %preun
-%systemd_preun restic-backup@.service restic-backup@.timer restic-check@.service restic-check@.timer
+# Stop and disable any enabled instances dynamically
+for timer in $(systemctl list-unit-files "restic-backup@*.timer" --state=enabled --no-legend 2>/dev/null | awk '{print $1}'); do
+    systemctl stop "$timer" 2>/dev/null || true
+    systemctl disable "$timer" 2>/dev/null || true
+    # Also stop the corresponding service
+    service_name="${timer%.timer}.service"
+    systemctl stop "$service_name" 2>/dev/null || true
+done
+
+for timer in $(systemctl list-unit-files "restic-check@*.timer" --state=enabled --no-legend 2>/dev/null | awk '{print $1}'); do
+    systemctl stop "$timer" 2>/dev/null || true
+    systemctl disable "$timer" 2>/dev/null || true
+    # Also stop the corresponding service
+    service_name="${timer%.timer}.service"
+    systemctl stop "$service_name" 2>/dev/null || true
+done
 
 %postun
-%systemd_postun_with_restart restic-backup@.service restic-backup@.timer restic-check@.service restic-check@.timer
+systemctl daemon-reload
 # Remove user and group on complete removal
 if [ $1 -eq 0 ]; then
     # Clean up data directories on uninstall

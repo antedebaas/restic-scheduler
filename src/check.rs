@@ -1,6 +1,6 @@
 use anyhow::Result;
-use tokio::time::{sleep, Duration};
-use tracing::{debug, info, warn};
+
+use tracing::{debug, error, info, warn};
 
 use crate::config::{Config, ProfileConfig};
 use crate::notification::{create_check_notification, NotificationSender};
@@ -72,9 +72,6 @@ impl CheckOperation {
             }
         };
 
-        // Add a small delay to avoid conflicts with backup operations
-        sleep(Duration::from_secs(1)).await;
-
         // Note: We don't unlock the repository here like in backup operations
         // because check operations should not interfere with backup operations
         // and backup operations take precedence
@@ -86,7 +83,8 @@ impl CheckOperation {
         {
             Ok(result) => result,
             Err(e) => {
-                let error_msg = format!("Repository check failed: {}", e);
+                let error_msg = format!("Repository check command failed: {}", e);
+                error!("{}", error_msg);
                 let duration = start_time.elapsed().as_secs();
                 self.send_failure_notification(&error_msg, Some(duration))
                     .await;
@@ -104,9 +102,22 @@ impl CheckOperation {
             self.send_success_notification(&result, Some(duration))
                 .await;
         } else {
-            warn!("Repository check failed for profile: {}", self.profile_name);
-            let error_msg = result.error.as_deref().unwrap_or("Repository check failed");
-            self.send_failure_notification(error_msg, Some(duration))
+            let error_msg = match &result.error {
+                Some(restic_error) => {
+                    format!(
+                        "Repository check failed for profile '{}': {}",
+                        self.profile_name, restic_error
+                    )
+                }
+                None => {
+                    format!(
+                        "Repository check failed for profile '{}' with unknown error",
+                        self.profile_name
+                    )
+                }
+            };
+            error!("{}", error_msg);
+            self.send_failure_notification(&error_msg, Some(duration))
                 .await;
         }
 
@@ -114,7 +125,7 @@ impl CheckOperation {
     }
 
     /// Check if repository is accessible
-    pub async fn test_connection(&self) -> Result<bool> {
+    pub async fn test_connection(&self) -> Result<(bool, Option<String>)> {
         debug!(
             "Testing repository connection for profile: {}",
             self.profile_name
@@ -125,11 +136,15 @@ impl CheckOperation {
         match self.restic.list_snapshots(&password, None).await {
             Ok(_) => {
                 debug!("Repository connection test successful");
-                Ok(true)
+                Ok((true, None))
             }
             Err(e) => {
-                warn!("Repository connection test failed: {}", e);
-                Ok(false)
+                let error_msg = format!(
+                    "Repository connection test failed for profile '{}': {}",
+                    self.profile_name, e
+                );
+                error!("{}", error_msg);
+                Ok((false, Some(error_msg)))
             }
         }
     }
