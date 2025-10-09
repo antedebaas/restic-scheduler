@@ -210,7 +210,7 @@ jobs:
         run: cargo binstall --no-confirm cross
 
       - name: Build ${{ vars.PACKAGE_NAME }}
-        run: ${{ matrix.platform.command }} build --locked --release --target=${{ matrix.platform.target }}
+        run: ${{ matrix.platform.command }} build --release --target=${{ matrix.platform.target }}
 
       - name: Create compressed tar archive (Unix)
         if: matrix.platform.platform_type != 'windows'
