@@ -23,9 +23,13 @@ impl StatsLogger {
     }
 
     /// Log backup statistics using the configured format
+    /// Always logs to stdout and additionally to the configured output format
     pub async fn log_stats(&self, stats: &BackupStats) -> Result<()> {
+        // Always log to stdout first
+        self.log_structured_stdout(stats).await?;
+
+        // Additionally log to configured format
         match self.format {
-            StatsFormat::Stdout => self.log_structured_stdout(stats).await,
             StatsFormat::Json => self.log_json_lines(stats).await,
             StatsFormat::Logfile => self.log_structured_file(stats).await,
         }
@@ -48,10 +52,13 @@ impl StatsLogger {
 
     /// Log statistics as structured log events to profile-named log file
     async fn log_structured_file(&self, stats: &BackupStats) -> Result<()> {
-        let stats_dir = self
-            .stats_dir
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("stats_dir must be configured for Logfile format"))?;
+        let stats_dir = match self.stats_dir.as_ref() {
+            Some(dir) => dir,
+            None => {
+                debug!("No stats directory configured, skipping logfile logging");
+                return Ok(());
+            }
+        };
 
         // Ensure the stats directory exists
         create_dir_all(stats_dir).await.with_context(|| {
@@ -97,10 +104,13 @@ impl StatsLogger {
 
     /// Log statistics to JSON Lines files
     async fn log_json_lines(&self, stats: &BackupStats) -> Result<()> {
-        let stats_dir = self
-            .stats_dir
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("stats_dir must be configured for Json format"))?;
+        let stats_dir = match self.stats_dir.as_ref() {
+            Some(dir) => dir,
+            None => {
+                debug!("No stats directory configured, skipping JSON file logging");
+                return Ok(());
+            }
+        };
 
         // Ensure the stats directory exists
         create_dir_all(stats_dir).await.with_context(|| {
@@ -140,17 +150,18 @@ impl StatsLogger {
     /// Read backup statistics from JSON Lines files
     pub async fn read_stats(&self, year: Option<u32>) -> Result<Vec<BackupStats>> {
         match self.format {
-            StatsFormat::Stdout => {
-                // Cannot read back from stdout logs - they go to the logging system
-                warn!("Cannot read stats from Stdout format - check your log aggregation system");
-                Ok(Vec::new())
-            }
             StatsFormat::Logfile => {
                 // Cannot read back from structured log files easily
                 warn!("Cannot read stats from Logfile format - structured logs are not easily parseable");
                 Ok(Vec::new())
             }
-            StatsFormat::Json => self.read_json_lines_stats(year).await,
+            StatsFormat::Json => {
+                if self.stats_dir.is_none() {
+                    warn!("No stats directory configured, cannot read stats");
+                    return Ok(Vec::new());
+                }
+                self.read_json_lines_stats(year).await
+            }
         }
     }
 
@@ -271,11 +282,6 @@ impl StatsLogger {
     /// Clean up old statistics files (only works for JsonLines format)
     pub async fn cleanup_old_stats(&self, keep_years: u32) -> Result<u32> {
         match self.format {
-            StatsFormat::Stdout => {
-                // Nothing to clean up for stdout logging
-                debug!("No cleanup needed for Stdout format");
-                Ok(0)
-            }
             StatsFormat::Logfile => self.cleanup_logfiles(keep_years).await,
             StatsFormat::Json => self.cleanup_json_lines_files(keep_years).await,
         }
@@ -283,10 +289,13 @@ impl StatsLogger {
 
     /// Clean up old logfiles
     async fn cleanup_logfiles(&self, keep_years: u32) -> Result<u32> {
-        let stats_dir = self
-            .stats_dir
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("stats_dir must be configured for Logfile format"))?;
+        let stats_dir = match self.stats_dir.as_ref() {
+            Some(dir) => dir,
+            None => {
+                debug!("No stats directory configured, nothing to clean up");
+                return Ok(0);
+            }
+        };
 
         let cutoff_date = Utc::now() - chrono::Duration::days((keep_years * 365) as i64);
         let profile_log = stats_dir.join(format!("{}.log", self.profile_name));
@@ -318,10 +327,13 @@ impl StatsLogger {
 
     /// Clean up old JSON Lines statistics files
     async fn cleanup_json_lines_files(&self, keep_years: u32) -> Result<u32> {
-        let stats_dir = self
-            .stats_dir
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("stats_dir must be configured for Json format"))?;
+        let stats_dir = match self.stats_dir.as_ref() {
+            Some(dir) => dir,
+            None => {
+                debug!("No stats directory configured, nothing to clean up");
+                return Ok(0);
+            }
+        };
 
         let current_year = Utc::now().year() as u32;
         let cutoff_year = current_year.saturating_sub(keep_years);
@@ -425,7 +437,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_structured_logging() {
-        let logger = StatsLogger::new(None, StatsFormat::Stdout, "test-profile".to_string());
+        let logger = StatsLogger::new(None, StatsFormat::Json, "test-profile".to_string());
 
         let stats = BackupStats {
             timestamp: Utc::now(),
@@ -553,9 +565,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_structured_logging_cleanup() {
-        let logger = StatsLogger::new(None, StatsFormat::Stdout, "test-profile".to_string());
+        let logger = StatsLogger::new(None, StatsFormat::Json, "test-profile".to_string());
 
-        // Should return 0 for stdout logging (nothing to clean up)
+        // Should return 0 when no stats_dir is configured (nothing to clean up)
         let removed = logger.cleanup_old_stats(5).await.unwrap();
         assert_eq!(removed, 0);
     }
@@ -590,5 +602,57 @@ mod tests {
         assert!(content.contains("profile=test-profile"));
         assert!(content.contains("snapshot_id=test123"));
         assert!(content.contains("Backup completed"));
+    }
+
+    #[tokio::test]
+    async fn test_dual_logging_json() {
+        let temp_dir = tempfile::tempdir().unwrap();
+
+        // Test json format with stats_dir - should log to both stdout and file
+        let logger = StatsLogger::new(
+            Some(temp_dir.path().to_path_buf()),
+            StatsFormat::Json,
+            "test-profile".to_string(),
+        );
+
+        let stats = BackupStats {
+            timestamp: chrono::Utc::now(),
+            snapshot_id: "test123".to_string(),
+            added_size: "1.0 GB".to_string(),
+            removed_size: "0.5 GB".to_string(),
+            total_size: "10.0 GB".to_string(),
+            duration_seconds: 300,
+        };
+
+        // Log stats - should write to both stdout and JSON file
+        logger.log_stats(&stats).await.unwrap();
+
+        // Check that JSON file was created
+        let year = stats.timestamp.format("%Y").to_string();
+        let json_file = temp_dir.path().join(format!("{}-stats.jsonl", year));
+        assert!(json_file.exists());
+
+        // Verify JSON content
+        let content = tokio::fs::read_to_string(&json_file).await.unwrap();
+        assert!(content.contains("test123"));
+        assert!(content.contains("1.0 GB"));
+    }
+
+    #[tokio::test]
+    async fn test_dual_logging_without_stats_dir() {
+        // Test json format without stats_dir - should only log to stdout
+        let logger = StatsLogger::new(None, StatsFormat::Json, "test-profile".to_string());
+
+        let stats = BackupStats {
+            timestamp: chrono::Utc::now(),
+            snapshot_id: "test123".to_string(),
+            added_size: "1.0 GB".to_string(),
+            removed_size: "0.5 GB".to_string(),
+            total_size: "10.0 GB".to_string(),
+            duration_seconds: 300,
+        };
+
+        // Should not panic even without stats_dir
+        logger.log_stats(&stats).await.unwrap();
     }
 }

@@ -2,7 +2,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
-use crate::backup::{add_random_delay, is_backup_running, BackupOperation};
+use crate::backup::{is_backup_running, BackupOperation};
 use crate::check::{check_all_profiles, CheckOperation};
 use crate::config::Config;
 use crate::restic::ResticCommand;
@@ -32,15 +32,7 @@ pub struct Cli {
 #[derive(Debug, Subcommand)]
 pub enum Commands {
     /// Perform a backup
-    Backup {
-        /// Add random delay (0-N seconds) before starting backup
-        #[arg(long, default_value = "0")]
-        random_delay: u64,
-
-        /// Skip backup if another restic process is running
-        #[arg(long)]
-        skip_if_running: bool,
-    },
+    Backup,
 
     /// Check repository integrity (full verification)
     Check {
@@ -89,6 +81,13 @@ pub enum Commands {
 
     /// Show repository information
     Info,
+
+    /// Unlock repository (remove stale locks)
+    Unlock {
+        /// Unlock all profiles instead of just the selected one
+        #[arg(long)]
+        all_profiles: bool,
+    },
 }
 
 impl Cli {
@@ -103,13 +102,7 @@ impl Cli {
         let profile_name = self.determine_profile(&config)?;
 
         match self.command {
-            Commands::Backup {
-                random_delay,
-                skip_if_running,
-            } => {
-                self.run_backup(config, profile_name, random_delay, skip_if_running)
-                    .await
-            }
+            Commands::Backup => self.run_backup(config, profile_name).await,
             Commands::Check { all_profiles } => {
                 self.run_check(config, profile_name, all_profiles).await
             }
@@ -133,6 +126,9 @@ impl Cli {
             Commands::ListProfiles => self.run_list_profiles(config).await,
             Commands::TestConnection => self.run_test_connection(config, profile_name).await,
             Commands::Info => self.run_info().await,
+            Commands::Unlock { all_profiles } => {
+                self.run_unlock(config, profile_name, all_profiles).await
+            }
         }
     }
 
@@ -175,21 +171,12 @@ impl Cli {
         }
     }
 
-    async fn run_backup(
-        &self,
-        config: Config,
-        profile_name: String,
-        random_delay: u64,
-        skip_if_running: bool,
-    ) -> Result<()> {
+    async fn run_backup(&self, config: Config, profile_name: String) -> Result<()> {
         // Check if another backup is running
-        if skip_if_running && is_backup_running().await {
+        if is_backup_running().await {
             println!("Another restic process is running, skipping backup");
             return Ok(());
         }
-
-        // Add random delay if requested
-        add_random_delay(random_delay).await;
 
         // Verify restic is available
         match ResticCommand::check_restic_available().await {
@@ -308,14 +295,10 @@ impl Cli {
         days: Option<u32>,
         cleanup_older_than: Option<u32>,
     ) -> Result<()> {
-        // For Json and Logfile formats, we need a stats directory
-        if matches!(
-            config.global.stats_format,
-            crate::config::StatsFormat::Json | crate::config::StatsFormat::Logfile
-        ) && config.global.stats_dir.is_none()
-        {
+        // For reading existing stats, we need a stats directory
+        if config.global.stats_dir.is_none() {
             return Err(anyhow::anyhow!(
-                "Statistics directory must be configured for Json and Logfile formats"
+                "Statistics directory must be configured for reading stats"
             ));
         }
 
@@ -427,11 +410,15 @@ impl Cli {
         );
 
         match check_op.test_connection().await? {
-            true => {
+            (true, _) => {
                 println!("Connection successful");
             }
-            false => {
-                println!("Connection failed");
+            (false, Some(error_msg)) => {
+                println!("Connection failed: {}", error_msg);
+                std::process::exit(1);
+            }
+            (false, None) => {
+                println!("Connection failed with unknown error");
                 std::process::exit(1);
             }
         }
@@ -457,6 +444,79 @@ impl Cli {
 
         Ok(())
     }
+
+    async fn run_unlock(
+        &self,
+        config: Config,
+        profile_name: String,
+        all_profiles: bool,
+    ) -> Result<()> {
+        if all_profiles {
+            let profile_names = config.profile_names();
+
+            if profile_names.is_empty() {
+                println!("No profiles found in configuration");
+                return Ok(());
+            }
+
+            println!("Unlocking repositories for all profiles...");
+            let mut failed_profiles = Vec::new();
+
+            for profile_name in profile_names {
+                let profile = config.get_profile(profile_name).unwrap();
+                let restic =
+                    ResticCommand::new(profile).with_verbosity(config.global.verbosity_level);
+
+                print!("  Unlocking profile '{}'... ", profile_name);
+
+                match profile.get_password().await {
+                    Ok(password) => match restic.unlock(&password).await {
+                        Ok(()) => {
+                            println!("OK");
+                        }
+                        Err(e) => {
+                            println!("FAILED: {}", e);
+                            failed_profiles.push(profile_name.to_string());
+                        }
+                    },
+                    Err(e) => {
+                        println!("FAILED: {}", e);
+                        failed_profiles.push(profile_name.to_string());
+                    }
+                }
+            }
+
+            if !failed_profiles.is_empty() {
+                anyhow::bail!(
+                    "Failed to unlock {} profile(s): {}",
+                    failed_profiles.len(),
+                    failed_profiles.join(", ")
+                );
+            }
+
+            println!("All repositories unlocked successfully");
+        } else {
+            let profile = config
+                .get_profile(&profile_name)
+                .ok_or_else(|| anyhow::anyhow!("Profile '{}' not found", profile_name))?;
+
+            let restic = ResticCommand::new(profile).with_verbosity(config.global.verbosity_level);
+            let password = profile.get_password().await?;
+
+            println!("Unlocking repository for profile '{}'...", profile_name);
+
+            match restic.unlock(&password).await {
+                Ok(()) => {
+                    println!("Repository unlocked successfully");
+                }
+                Err(e) => {
+                    anyhow::bail!("Failed to unlock repository: {}", e);
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -468,7 +528,7 @@ mod tests {
         use clap::Parser;
 
         let cli = Cli::try_parse_from(["restic-scheduler", "backup"]).unwrap();
-        assert!(matches!(cli.command, Commands::Backup { .. }));
+        assert!(matches!(cli.command, Commands::Backup));
     }
 
     #[test]
@@ -493,5 +553,29 @@ mod tests {
         .unwrap();
 
         assert_eq!(cli.config, PathBuf::from("/custom/config.toml"));
+    }
+
+    #[test]
+    fn test_cli_unlock_command() {
+        use clap::Parser;
+
+        let cli = Cli::try_parse_from(["restic-scheduler", "unlock"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Commands::Unlock {
+                all_profiles: false
+            }
+        ));
+    }
+
+    #[test]
+    fn test_cli_unlock_all_profiles() {
+        use clap::Parser;
+
+        let cli = Cli::try_parse_from(["restic-scheduler", "unlock", "--all-profiles"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Commands::Unlock { all_profiles: true }
+        ));
     }
 }

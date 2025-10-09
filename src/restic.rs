@@ -96,8 +96,8 @@ impl ResticCommand {
             .context("Failed to execute restic unlock command")?;
 
         if !output.status.success() {
-            let error = String::from_utf8_lossy(&output.stderr);
-            warn!("Failed to unlock repository: {}", error);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!("Failed to unlock repository: {}", stderr);
         } else {
             debug!("Repository unlocked successfully");
         }

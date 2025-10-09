@@ -3,9 +3,8 @@ Description=Schedule Restic Backup (%i profile)
 Requires=restic-backup@%i.service
 
 [Timer]
-# Run daily at 02:00 with random delay up to 3 hours
+# Run daily at 02:00
 OnCalendar=*-*-* 02:00:00
-RandomizedDelaySec=3h
 Persistent=true
 
 [Install]

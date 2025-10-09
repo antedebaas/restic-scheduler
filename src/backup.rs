@@ -28,24 +28,13 @@ impl BackupOperation {
 
         let restic = ResticCommand::new(&profile).with_verbosity(config.global.verbosity_level);
 
-        let stats_logger = match config.global.stats_format {
-            crate::config::StatsFormat::Stdout => Some(StatsLogger::new(
-                None,
-                config.global.stats_format.clone(),
-                profile_name.clone(),
-            )),
-            crate::config::StatsFormat::Json | crate::config::StatsFormat::Logfile => {
-                if let Some(ref stats_dir) = config.global.stats_dir {
-                    Some(StatsLogger::new(
-                        Some(stats_dir.clone()),
-                        config.global.stats_format.clone(),
-                        profile_name.clone(),
-                    ))
-                } else {
-                    None
-                }
-            }
-        };
+        // Always create a stats logger since we always log to stdout
+        // Also pass stats_dir for additional file output (json/logfile formats)
+        let stats_logger = Some(StatsLogger::new(
+            config.global.stats_dir.clone(),
+            config.global.stats_format.clone(),
+            profile_name.clone(),
+        ));
 
         let notification_sender =
             if profile.notifications.email.is_some() || profile.notifications.webhook.is_some() {
@@ -109,6 +98,7 @@ impl BackupOperation {
         // Unlock repository to clear any stale locks
         if let Err(e) = self.restic.unlock(&password).await {
             warn!("Failed to unlock repository: {}", e);
+            // Note: We continue even if unlock fails as it might not be critical
         }
 
         // Perform the backup
@@ -127,11 +117,12 @@ impl BackupOperation {
         let duration = start_time.elapsed().as_secs();
 
         if !backup_result.success {
-            let error_msg = backup_result
-                .error
-                .as_deref()
-                .unwrap_or("Backup failed with unknown error");
-            self.send_failure_notification(error_msg, Some(duration))
+            let error_msg = match &backup_result.error {
+                Some(restic_error) => format!("Backup failed: {}", restic_error),
+                None => "Backup failed with unknown error".to_string(),
+            };
+            error!("{}", error_msg);
+            self.send_failure_notification(&error_msg, Some(duration))
                 .await;
             return Ok(backup_result);
         }
@@ -139,6 +130,7 @@ impl BackupOperation {
         // Clean up old snapshots according to retention policy
         if let Err(e) = self.cleanup_old_snapshots(&password).await {
             warn!("Failed to clean up old snapshots: {}", e);
+            // Note: We continue even if cleanup fails as the backup itself was successful
         }
 
         // Log statistics if enabled
@@ -164,13 +156,15 @@ impl BackupOperation {
                 debug!("Repository is already initialized");
                 Ok(())
             }
-            Err(_) => {
+            Err(e) => {
                 info!("Repository not found or not initialized, initializing now...");
-                self.restic
-                    .init_repository(password)
-                    .await
-                    .context("Failed to initialize repository")?;
-                info!("Repository initialized successfully");
+                if let Err(init_error) = self.restic.init_repository(password).await {
+                    anyhow::bail!(
+                        "Failed to initialize repository. Original error: {}. Init error: {}",
+                        e,
+                        init_error
+                    );
+                }
                 Ok(())
             }
         }
@@ -394,19 +388,6 @@ pub async fn is_backup_running() -> bool {
     }
 }
 
-/// Add random delay to prevent multiple backups from starting simultaneously
-pub async fn add_random_delay(max_seconds: u64) {
-    if max_seconds == 0 {
-        return;
-    }
-
-    let delay = fastrand::u64(0..=max_seconds);
-    if delay > 0 {
-        info!("Adding random delay of {} seconds", delay);
-        sleep(Duration::from_secs(delay)).await;
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -474,17 +455,5 @@ mod tests {
         // This test may be flaky depending on system state
         let _running = is_backup_running().await;
         // Just ensure the function doesn't panic - no assertion needed
-    }
-
-    #[tokio::test]
-    async fn test_random_delay() {
-        use std::time::Instant;
-
-        let start = Instant::now();
-        add_random_delay(0).await;
-        let duration = start.elapsed();
-
-        // Should complete immediately
-        assert!(duration.as_millis() < 100);
     }
 }

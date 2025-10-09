@@ -9,7 +9,7 @@ User=restic-scheduler
 Group=restic-scheduler
 
 # Backup command with profile
-ExecStart=/usr/bin/restic-scheduler --profile %i backup --random-delay 300 --skip-if-running
+ExecStart=/usr/bin/restic-scheduler --profile %i backup
 
 # Resource limits
 Nice=10
