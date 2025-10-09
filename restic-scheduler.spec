@@ -51,11 +51,11 @@ statistics and logging, repository integrity checks, and systemd integration
 for reliable scheduling.
 
 %prep
-%autosetup -n ${name}-%{version}
+%autosetup -n restic-scheduler-%{version}
 
 %build
 # Set build environment for optimal compilation
-export CARGO_TARGET_DIR=%{_builddir}/${name}-%{version}/target
+export CARGO_TARGET_DIR=%{_builddir}/restic-scheduler-%{version}/target
 export RUSTFLAGS="-Ccodegen-units=1 -Clink-dead-code=off"
 
 # Ensure we have a proper Cargo.lock
@@ -67,14 +67,14 @@ cargo build --release --verbose --locked
 %install
 # Create directory structure
 install -d %{buildroot}%{_bindir}
-install -d %{buildroot}%{_sysconfdir}/${name}
-install -d %{buildroot}%{_sharedstatedir}/${name}
-install -d %{buildroot}%{_localstatedir}/log/${name}
+install -d %{buildroot}%{_sysconfdir}/restic-scheduler
+install -d %{buildroot}%{_sharedstatedir}/restic-scheduler
+install -d %{buildroot}%{_localstatedir}/log/restic-scheduler
 install -d %{buildroot}%{_unitdir}
 install -d %{buildroot}%{_docdir}/%{name}
 
 # Install binary
-install -D -m 755 %{_builddir}/${name}-%{version}/target/release/${name} %{buildroot}%{_bindir}/${name}
+install -D -m 755 %{_builddir}/restic-scheduler-%{version}/target/release/restic-scheduler %{buildroot}%{_bindir}/restic-scheduler
 
 # Install systemd service and timer files
 install -D -m 644 systemd/restic-backup@.service %{buildroot}%{_unitdir}/restic-backup@.service
@@ -83,7 +83,7 @@ install -D -m 644 systemd/restic-check@.service %{buildroot}%{_unitdir}/restic-c
 install -D -m 644 systemd/restic-check@.timer %{buildroot}%{_unitdir}/restic-check@.timer
 
 # Install example configuration filerestic-scheduler
-install -m 640 config.example.toml %{buildroot}%{_sysconfdir}/${name}/config.toml
+install -m 640 config.example.toml %{buildroot}%{_sysconfdir}/restic-scheduler/config.toml
 
 # Install documentation
 install -m 644 README.md %{buildroot}%{_docdir}/%{name}/
@@ -94,27 +94,27 @@ install -m 644 LICENSE %{buildroot}%{_docdir}/%{name}/
 %files
 %license %{_docdir}/%{name}/LICENSE
 %doc %{_docdir}/%{name}/README.md
-%config(noreplace) %{_sysconfdir}/${name}/config.toml
-%{_bindir}/${name}
+%config(noreplace) %{_sysconfdir}/restic-scheduler/config.toml
+%{_bindir}/restic-scheduler
 %{_unitdir}/restic-backup@.service
 %{_unitdir}/restic-backup@.timer
 %{_unitdir}/restic-check@.service
 %{_unitdir}/restic-check@.timer
-%attr(0750,${name},${name}) %dir %{_sharedstatedir}/${name}
-%attr(0750,${name},${name}) %dir %{_localstatedir}/log/${name}
-%attr(0750,${name},${name}) %dir %{_sysconfdir}/${name}
+%attr(0750,restic-scheduler,restic-scheduler) %dir %{_sharedstatedir}/restic-scheduler
+%attr(0750,restic-scheduler,restic-scheduler) %dir %{_localstatedir}/log/restic-scheduler
+%attr(0750,restic-scheduler,restic-scheduler) %dir %{_sysconfdir}/restic-scheduler
 
 %pre
-# Create ${name} user and group
-getent group ${name} >/dev/null || groupadd -r ${name}
-getent passwd ${name} >/dev/null || useradd -r -g ${name} -s /usr/sbin/nologin -M -d %{_sharedstatedir}/${name} -c "Restic Scheduler Service" ${name}
+# Create restic-scheduler user and group
+getent group restic-scheduler >/dev/null || groupadd -r restic-scheduler
+getent passwd restic-scheduler >/dev/null || useradd -r -g restic-scheduler -s /usr/sbin/nologin -M -d %{_sharedstatedir}/restic-scheduler -c "Restic Scheduler Service" restic-scheduler
 
 %post
 # Ensure proper ownership of directories
 if [ $1 -eq 1 ]; then
-    chown -R ${name}:${name} %{_sharedstatedir}/${name} %{_localstatedir}/log/${name} 2>/dev/null || true
-    chmod 640 %{_sysconfdir}/${name}/config.toml 2>/dev/null || true
-    chown ${name}:${name} %{_sysconfdir}/${name}/config.toml 2>/dev/null || true
+    chown -R restic-scheduler:restic-scheduler %{_sharedstatedir}/restic-scheduler %{_localstatedir}/log/restic-scheduler 2>/dev/null || true
+    chmod 640 %{_sysconfdir}/restic-scheduler/config.toml 2>/dev/null || true
+    chown restic-scheduler:restic-scheduler %{_sysconfdir}/restic-scheduler/config.toml 2>/dev/null || true
 fi
 %systemd_post restic-backup@.service restic-backup@.timer restic-check@.service restic-check@.timer
 
@@ -126,10 +126,10 @@ fi
 # Remove user and group on complete removal
 if [ $1 -eq 0 ]; then
     # Clean up data directories on uninstall
-    rm -rf %{_sharedstatedir}/${name}/* 2>/dev/null || true
-    rm -rf %{_localstatedir}/log/${name}/* 2>/dev/null || true
-    getent passwd ${name} >/dev/null && userdel ${name} >/dev/null 2>&1 || true
-    getent group ${name} >/dev/null && groupdel ${name} >/dev/null 2>&1 || true
+    rm -rf %{_sharedstatedir}/restic-scheduler/* 2>/dev/null || true
+    rm -rf %{_localstatedir}/log/restic-scheduler/* 2>/dev/null || true
+    getent passwd restic-scheduler >/dev/null && userdel restic-scheduler >/dev/null 2>&1 || true
+    getent group restic-scheduler >/dev/null && groupdel restic-scheduler >/dev/null 2>&1 || true
 fi
 
 %changelog
