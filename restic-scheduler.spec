@@ -4,8 +4,8 @@ Release:        1%{?dist}
 Summary:        Automatic restic backup scheduler
 
 License:        GPL-3.0-only
-URL:            https://github.com/antedebaas/${name}
-Source0:        https://github.com/antedebaas/${name}/archive/v%{version}/${name}-%{version}.tar.gz
+URL:            https://github.com/antedebaas/restic-scheduler
+Source0:        https://github.com/antedebaas/restic-scheduler/archive/v%{version}/restic-scheduler-%{version}.tar.gz
 
 BuildRequires:  rust >= 1.70
 BuildRequires:  cargo
