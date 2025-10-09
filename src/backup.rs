@@ -369,7 +369,11 @@ impl Drop for SignalHandler {
 
 /// Check if a backup is already running
 pub async fn is_backup_running() -> bool {
-    match Command::new("pgrep").args(["-f", "restic"]).output().await {
+    match Command::new("pgrep")
+        .args(["-f", "restic backup"])
+        .output()
+        .await
+    {
         Ok(output) => {
             let stdout = String::from_utf8_lossy(&output.stdout);
             let lines: Vec<&str> = stdout.trim().lines().collect();
