@@ -5,12 +5,13 @@ use tokio::fs::{create_dir_all, OpenOptions};
 use tokio::io::AsyncWriteExt;
 use tracing::{debug, info, warn};
 
-use crate::config::{BackupStats, StatsFormat};
+use crate::config::{BackupStats, LogRotationConfig, StatsFormat};
 
 pub struct StatsLogger {
     stats_dir: Option<PathBuf>,
     format: StatsFormat,
     profile_name: String,
+    rotation_config: LogRotationConfig,
 }
 
 impl StatsLogger {
@@ -19,7 +20,13 @@ impl StatsLogger {
             stats_dir,
             format,
             profile_name,
+            rotation_config: LogRotationConfig::default(),
         }
+    }
+
+    pub fn with_rotation_config(mut self, rotation_config: LogRotationConfig) -> Self {
+        self.rotation_config = rotation_config;
+        self
     }
 
     /// Log backup statistics using the configured format
@@ -52,12 +59,11 @@ impl StatsLogger {
 
     /// Log statistics as structured log events to profile-named log file
     async fn log_structured_file(&self, stats: &BackupStats) -> Result<()> {
-        let stats_dir = match self.stats_dir.as_ref() {
-            Some(dir) => dir,
-            None => {
-                debug!("No stats directory configured, skipping logfile logging");
-                return Ok(());
-            }
+        let stats_dir = if let Some(dir) = self.stats_dir.as_ref() {
+            dir
+        } else {
+            debug!("No stats directory configured, skipping logfile logging");
+            return Ok(());
         };
 
         // Ensure the stats directory exists
@@ -68,6 +74,9 @@ impl StatsLogger {
         let log_file = stats_dir.join(format!("{}.log", self.profile_name));
 
         debug!("Logging structured backup stats to: {}", log_file.display());
+
+        // Check if log rotation is needed before writing
+        self.rotate_log_if_needed(&log_file).await?;
 
         // Open file in append mode
         let mut file = OpenOptions::new()
@@ -102,14 +111,139 @@ impl StatsLogger {
         Ok(())
     }
 
+    /// Rotate log file if it exceeds the configured size limit
+    async fn rotate_log_if_needed(&self, log_file: &PathBuf) -> Result<()> {
+        use tokio::fs;
+
+        // Check if file exists and get its size
+        let metadata = match fs::metadata(log_file).await {
+            Ok(metadata) => metadata,
+            Err(_) => return Ok(()), // File doesn't exist, no rotation needed
+        };
+
+        let file_size_mb = metadata.len() / (1024 * 1024);
+
+        if file_size_mb >= self.rotation_config.max_log_size_mb {
+            debug!(
+                "Log file {} is {}MB, rotating (limit: {}MB)",
+                log_file.display(),
+                file_size_mb,
+                self.rotation_config.max_log_size_mb
+            );
+
+            self.perform_log_rotation(log_file).await?;
+        }
+
+        Ok(())
+    }
+
+    /// Perform the actual log rotation
+    async fn perform_log_rotation(&self, log_file: &PathBuf) -> Result<()> {
+        use tokio::fs;
+
+        let base_name = log_file
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("log");
+        let extension = log_file
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("log");
+
+        // Shift existing rotated files
+        for i in (1..self.rotation_config.max_rotated_files).rev() {
+            let current_rotated = if self.rotation_config.compress_rotated && i > 1 {
+                log_file.with_file_name(format!("{base_name}.{i}.{extension}.gz"))
+            } else {
+                log_file.with_file_name(format!("{base_name}.{i}.{extension}"))
+            };
+
+            let next_rotated = if self.rotation_config.compress_rotated {
+                log_file.with_file_name(format!("{}.{}.{}.gz", base_name, i + 1, extension))
+            } else {
+                log_file.with_file_name(format!("{}.{}.{}", base_name, i + 1, extension))
+            };
+
+            if current_rotated.exists() {
+                if next_rotated.exists() {
+                    let _ = fs::remove_file(&next_rotated).await; // Remove oldest if it exists
+                }
+                let _ = fs::rename(&current_rotated, &next_rotated).await;
+            }
+        }
+
+        // Move current log to .1
+        let rotated_file = log_file.with_file_name(format!("{base_name}.1.{extension}"));
+        if let Err(e) = fs::rename(log_file, &rotated_file).await {
+            warn!("Failed to rotate log file {}: {}", log_file.display(), e);
+            return Ok(()); // Don't fail the logging operation
+        }
+
+        // Compress the rotated file if enabled
+        if self.rotation_config.compress_rotated {
+            if let Err(e) = self.compress_file(&rotated_file).await {
+                warn!(
+                    "Failed to compress rotated log file {}: {}",
+                    rotated_file.display(),
+                    e
+                );
+                // Continue even if compression fails
+            }
+        }
+
+        debug!("Log rotation completed for {}", log_file.display());
+        Ok(())
+    }
+
+    /// Compress a log file using gzip
+    async fn compress_file(&self, file_path: &PathBuf) -> Result<()> {
+        use flate2::write::GzEncoder;
+        use flate2::Compression;
+        use std::io::Write;
+        use tokio::fs;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let compressed_path = file_path.with_extension(format!(
+            "{}.gz",
+            file_path
+                .extension()
+                .and_then(|s| s.to_str())
+                .unwrap_or("log")
+        ));
+
+        // Read the original file
+        let mut file = fs::File::open(file_path).await?;
+        let mut contents = Vec::new();
+        file.read_to_end(&mut contents).await?;
+
+        // Compress the contents
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&contents)?;
+        let compressed_data = encoder.finish()?;
+
+        // Write compressed data
+        let mut compressed_file = fs::File::create(&compressed_path).await?;
+        compressed_file.write_all(&compressed_data).await?;
+        compressed_file.flush().await?;
+
+        // Remove the original file
+        fs::remove_file(file_path).await?;
+
+        debug!(
+            "Compressed {} to {}",
+            file_path.display(),
+            compressed_path.display()
+        );
+        Ok(())
+    }
+
     /// Log statistics to JSON Lines files
     async fn log_json_lines(&self, stats: &BackupStats) -> Result<()> {
-        let stats_dir = match self.stats_dir.as_ref() {
-            Some(dir) => dir,
-            None => {
-                debug!("No stats directory configured, skipping JSON file logging");
-                return Ok(());
-            }
+        let stats_dir = if let Some(dir) = self.stats_dir.as_ref() {
+            dir
+        } else {
+            debug!("No stats directory configured, skipping JSON file logging");
+            return Ok(());
         };
 
         // Ensure the stats directory exists
@@ -118,9 +252,12 @@ impl StatsLogger {
         })?;
 
         let year = stats.timestamp.format("%Y").to_string();
-        let log_file = stats_dir.join(format!("{}-stats.jsonl", year));
+        let log_file = stats_dir.join(format!("{year}-stats.jsonl"));
 
         debug!("Logging backup stats to: {}", log_file.display());
+
+        // Check if log rotation is needed before writing
+        self.rotate_log_if_needed(&log_file).await?;
 
         // Open file in append mode
         let mut file = OpenOptions::new()
@@ -135,7 +272,7 @@ impl StatsLogger {
             .to_json_line()
             .context("Failed to serialize stats to JSON")?;
 
-        file.write_all(format!("{}\n", json_line).as_bytes())
+        file.write_all(format!("{json_line}\n").as_bytes())
             .await
             .context("Failed to write stats record")?;
 
@@ -176,7 +313,7 @@ impl StatsLogger {
 
         if let Some(year) = year {
             // Read stats for a specific year
-            let log_file = stats_dir.join(format!("{}-stats.jsonl", year));
+            let log_file = stats_dir.join(format!("{year}-stats.jsonl"));
             if log_file.exists() {
                 let year_stats = self.read_stats_from_json_file(&log_file).await?;
                 all_stats.extend(year_stats);
@@ -195,7 +332,7 @@ impl StatsLogger {
                             match self.read_stats_from_json_file(&path).await {
                                 Ok(year_stats) => all_stats.extend(year_stats),
                                 Err(e) => {
-                                    warn!("Failed to read stats from {}: {}", path.display(), e)
+                                    warn!("Failed to read stats from {}: {}", path.display(), e);
                                 }
                             }
                         }
@@ -243,7 +380,7 @@ impl StatsLogger {
         let all_stats = self.read_stats(None).await?;
 
         let filtered_stats = if let Some(days) = days {
-            let cutoff = Utc::now() - chrono::Duration::days(days as i64);
+            let cutoff = Utc::now() - chrono::Duration::days(i64::from(days));
             all_stats
                 .into_iter()
                 .filter(|s| s.timestamp >= cutoff)
@@ -266,8 +403,7 @@ impl StatsLogger {
         // Calculate total size progression (last snapshot size)
         let latest_total_size = filtered_stats
             .last()
-            .map(|s| s.total_size.clone())
-            .unwrap_or_else(|| "Unknown".to_string());
+            .map_or_else(|| "Unknown".to_string(), |s| s.total_size.clone());
 
         Ok(StatsSummary {
             total_backups,
@@ -279,7 +415,7 @@ impl StatsLogger {
         })
     }
 
-    /// Clean up old statistics files (only works for JsonLines format)
+    /// Clean up old statistics files (only works for `JsonLines` format)
     pub async fn cleanup_old_stats(&self, keep_years: u32) -> Result<u32> {
         match self.format {
             StatsFormat::Logfile => self.cleanup_logfiles(keep_years).await,
@@ -289,15 +425,14 @@ impl StatsLogger {
 
     /// Clean up old logfiles
     async fn cleanup_logfiles(&self, keep_years: u32) -> Result<u32> {
-        let stats_dir = match self.stats_dir.as_ref() {
-            Some(dir) => dir,
-            None => {
-                debug!("No stats directory configured, nothing to clean up");
-                return Ok(0);
-            }
+        let stats_dir = if let Some(dir) = self.stats_dir.as_ref() {
+            dir
+        } else {
+            debug!("No stats directory configured, nothing to clean up");
+            return Ok(0);
         };
 
-        let cutoff_date = Utc::now() - chrono::Duration::days((keep_years * 365) as i64);
+        let cutoff_date = Utc::now() - chrono::Duration::days(i64::from(keep_years * 365));
         let profile_log = stats_dir.join(format!("{}.log", self.profile_name));
 
         if profile_log.exists() {
@@ -327,12 +462,11 @@ impl StatsLogger {
 
     /// Clean up old JSON Lines statistics files
     async fn cleanup_json_lines_files(&self, keep_years: u32) -> Result<u32> {
-        let stats_dir = match self.stats_dir.as_ref() {
-            Some(dir) => dir,
-            None => {
-                debug!("No stats directory configured, nothing to clean up");
-                return Ok(0);
-            }
+        let stats_dir = if let Some(dir) = self.stats_dir.as_ref() {
+            dir
+        } else {
+            debug!("No stats directory configured, nothing to clean up");
+            return Ok(0);
         };
 
         let current_year = Utc::now().year() as u32;
@@ -407,7 +541,7 @@ impl std::fmt::Display for StatsSummary {
         }
 
         let period_desc = match self.period_days {
-            Some(days) => format!("Last {} days", days),
+            Some(days) => format!("Last {days} days"),
             None => "All time".to_string(),
         };
 
@@ -652,7 +786,165 @@ mod tests {
             duration_seconds: 300,
         };
 
-        // Should not panic even without stats_dir
+        // This should succeed without creating any files
         logger.log_stats(&stats).await.unwrap();
+
+        // No files should be created since stats_dir is None
+    }
+
+    #[tokio::test]
+    async fn test_log_rotation() {
+        use crate::config::LogRotationConfig;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+
+        // Create a logger with small rotation size for testing
+        let rotation_config = LogRotationConfig {
+            max_log_size_mb: 1, // 1MB for testing
+            max_rotated_files: 3,
+            compress_rotated: false, // Disable compression for easier testing
+            ..Default::default()
+        };
+
+        let logger = StatsLogger::new(
+            Some(temp_dir.path().to_path_buf()),
+            StatsFormat::Logfile,
+            "test-profile".to_string(),
+        )
+        .with_rotation_config(rotation_config);
+
+        // Create a log file that exceeds the size limit
+        let log_file = temp_dir.path().join("test-profile.log");
+        let large_content = "x".repeat(2 * 1024 * 1024); // 2MB of content
+        tokio::fs::write(&log_file, large_content).await.unwrap();
+
+        let stats = BackupStats {
+            timestamp: chrono::Utc::now(),
+            snapshot_id: "test123".to_string(),
+            added_size: "1.0 GB".to_string(),
+            removed_size: "0.5 GB".to_string(),
+            total_size: "10.0 GB".to_string(),
+            duration_seconds: 300,
+        };
+
+        // This should trigger rotation
+        logger.log_stats(&stats).await.unwrap();
+
+        // Check that rotation occurred
+        let rotated_file = temp_dir.path().join("test-profile.1.log");
+        assert!(rotated_file.exists(), "Rotated file should exist");
+
+        // Original file should be recreated and smaller
+        assert!(log_file.exists(), "Original log file should exist");
+        let new_size = tokio::fs::metadata(&log_file).await.unwrap().len();
+        assert!(
+            new_size < 1024 * 1024,
+            "New log file should be smaller after rotation"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_log_rotation_with_compression() {
+        use crate::config::LogRotationConfig;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+
+        // Create a logger with compression enabled
+        let rotation_config = LogRotationConfig {
+            max_log_size_mb: 1,
+            compress_rotated: true,
+            ..Default::default()
+        };
+
+        let logger = StatsLogger::new(
+            Some(temp_dir.path().to_path_buf()),
+            StatsFormat::Logfile,
+            "test-profile".to_string(),
+        )
+        .with_rotation_config(rotation_config);
+
+        // Create a log file that exceeds the size limit
+        let log_file = temp_dir.path().join("test-profile.log");
+        let large_content = "This is a test log entry that will be repeated many times to make the file large enough for rotation.\n".repeat(50000);
+        tokio::fs::write(&log_file, large_content).await.unwrap();
+
+        let stats = BackupStats {
+            timestamp: chrono::Utc::now(),
+            snapshot_id: "test123".to_string(),
+            added_size: "1.0 GB".to_string(),
+            removed_size: "0.5 GB".to_string(),
+            total_size: "10.0 GB".to_string(),
+            duration_seconds: 300,
+        };
+
+        // This should trigger rotation with compression
+        logger.log_stats(&stats).await.unwrap();
+
+        // Check that compressed rotated file exists
+        let compressed_file = temp_dir.path().join("test-profile.1.log.gz");
+        assert!(
+            compressed_file.exists(),
+            "Compressed rotated file should exist"
+        );
+
+        // Uncompressed rotated file should not exist
+        let uncompressed_file = temp_dir.path().join("test-profile.1.log");
+        assert!(
+            !uncompressed_file.exists(),
+            "Uncompressed rotated file should not exist"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_multiple_rotations() {
+        use crate::config::LogRotationConfig;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+
+        let rotation_config = LogRotationConfig {
+            max_log_size_mb: 1,
+            max_rotated_files: 2,
+            compress_rotated: false,
+            ..Default::default()
+        };
+
+        let logger = StatsLogger::new(
+            Some(temp_dir.path().to_path_buf()),
+            StatsFormat::Logfile,
+            "test-profile".to_string(),
+        )
+        .with_rotation_config(rotation_config);
+
+        let log_file = temp_dir.path().join("test-profile.log");
+        let stats = BackupStats {
+            timestamp: chrono::Utc::now(),
+            snapshot_id: "test123".to_string(),
+            added_size: "1.0 GB".to_string(),
+            removed_size: "0.5 GB".to_string(),
+            total_size: "10.0 GB".to_string(),
+            duration_seconds: 300,
+        };
+
+        // Create large log file and rotate multiple times
+        for i in 1..=3 {
+            let large_content = format!("Rotation {} - {}", i, "x".repeat(2 * 1024 * 1024));
+            tokio::fs::write(&log_file, large_content).await.unwrap();
+            logger.log_stats(&stats).await.unwrap();
+        }
+
+        // Check that we have the expected rotated files
+        let rotated_1 = temp_dir.path().join("test-profile.1.log");
+        let rotated_2 = temp_dir.path().join("test-profile.2.log");
+        let rotated_3 = temp_dir.path().join("test-profile.3.log");
+
+        assert!(rotated_1.exists(), "First rotated file should exist");
+        assert!(rotated_2.exists(), "Second rotated file should exist");
+        assert!(
+            !rotated_3.exists(),
+            "Third rotated file should not exist (beyond max_rotated_files)"
+        );
     }
 }

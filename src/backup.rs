@@ -23,18 +23,21 @@ impl BackupOperation {
     pub fn new(config: Config, profile_name: String) -> Result<Self> {
         let profile = config
             .get_profile(&profile_name)
-            .ok_or_else(|| anyhow::anyhow!("Profile '{}' not found", profile_name))?
+            .ok_or_else(|| anyhow::anyhow!("Profile '{profile_name}' not found"))?
             .clone();
 
         let restic = ResticCommand::new(&profile).with_verbosity(config.global.verbosity_level);
 
         // Always create a stats logger since we always log to stdout
         // Also pass stats_dir for additional file output (json/logfile formats)
-        let stats_logger = Some(StatsLogger::new(
-            config.global.stats_dir.clone(),
-            config.global.stats_format.clone(),
-            profile_name.clone(),
-        ));
+        let stats_logger = Some(
+            StatsLogger::new(
+                config.global.stats_dir.clone(),
+                config.global.stats_format.clone(),
+                profile_name.clone(),
+            )
+            .with_rotation_config(config.global.log_rotation.clone()),
+        );
 
         let notification_sender =
             if profile.notifications.email.is_some() || profile.notifications.webhook.is_some() {
@@ -67,7 +70,7 @@ impl BackupOperation {
         let password = match self.profile.get_password().await {
             Ok(pwd) => pwd,
             Err(e) => {
-                let error_msg = format!("Failed to get repository password: {}", e);
+                let error_msg = format!("Failed to get repository password: {e}");
                 error!("{}", error_msg);
                 self.send_failure_notification(&error_msg, None).await;
                 anyhow::bail!(error_msg);
@@ -79,7 +82,7 @@ impl BackupOperation {
 
         // Check and initialize repository if needed
         if let Err(e) = self.ensure_repository_initialized(&password).await {
-            let error_msg = format!("Failed to initialize repository: {}", e);
+            let error_msg = format!("Failed to initialize repository: {e}");
             error!("{}", error_msg);
             self.send_failure_notification(&error_msg, None).await;
             anyhow::bail!(error_msg);
@@ -88,7 +91,7 @@ impl BackupOperation {
         // Run pre-backup command if configured for this profile
         if let Some(ref command) = self.profile.pre_backup_command {
             if let Err(e) = self.run_pre_backup_command(command).await {
-                let error_msg = format!("Pre-backup command failed: {}", e);
+                let error_msg = format!("Pre-backup command failed: {e}");
                 error!("{}", error_msg);
                 self.send_failure_notification(&error_msg, None).await;
                 anyhow::bail!(error_msg);
@@ -105,7 +108,7 @@ impl BackupOperation {
         let backup_result = match self.perform_backup(&password).await {
             Ok(result) => result,
             Err(e) => {
-                let error_msg = format!("Backup operation failed: {}", e);
+                let error_msg = format!("Backup operation failed: {e}");
                 error!("{}", error_msg);
                 let duration = start_time.elapsed().as_secs();
                 self.send_failure_notification(&error_msg, Some(duration))
@@ -118,7 +121,7 @@ impl BackupOperation {
 
         if !backup_result.success {
             let error_msg = match &backup_result.error {
-                Some(restic_error) => format!("Backup failed: {}", restic_error),
+                Some(restic_error) => format!("Backup failed: {restic_error}"),
                 None => "Backup failed with unknown error".to_string(),
             };
             error!("{}", error_msg);
@@ -160,9 +163,7 @@ impl BackupOperation {
                 info!("Repository not found or not initialized, initializing now...");
                 if let Err(init_error) = self.restic.init_repository(password).await {
                     anyhow::bail!(
-                        "Failed to initialize repository. Original error: {}. Init error: {}",
-                        e,
-                        init_error
+                        "Failed to initialize repository. Original error: {e}. Init error: {init_error}"
                     );
                 }
                 Ok(())
@@ -223,7 +224,7 @@ impl BackupOperation {
         let output = cmd
             .output()
             .await
-            .with_context(|| format!("Failed to execute pre-backup command: {}", command))?;
+            .with_context(|| format!("Failed to execute pre-backup command: {command}"))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -435,6 +436,7 @@ mod tests {
                 verbosity_level: 1,
                 stats_dir: None,
                 stats_format: crate::config::StatsFormat::Json,
+                log_rotation: crate::config::LogRotationConfig::default(),
             },
             profiles,
         };

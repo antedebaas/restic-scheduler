@@ -76,7 +76,7 @@ impl ResticCommand {
 
         if !output.status.success() {
             let error = String::from_utf8_lossy(&output.stderr);
-            anyhow::bail!("Failed to initialize repository: {}", error);
+            anyhow::bail!("Failed to initialize repository: {error}");
         }
 
         info!("Repository initialized successfully");
@@ -97,10 +97,9 @@ impl ResticCommand {
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            anyhow::bail!("Failed to unlock repository: {}", stderr);
-        } else {
-            debug!("Repository unlocked successfully");
+            anyhow::bail!("Failed to unlock repository: {stderr}");
         }
+        debug!("Repository unlocked successfully");
 
         Ok(())
     }
@@ -157,7 +156,7 @@ impl ResticCommand {
         // Add B2 connections if configured
         if let Some(connections) = self.env_vars.get("B2_CONNECTIONS") {
             cmd.arg("--option")
-                .arg(format!("b2.connections={}", connections));
+                .arg(format!("b2.connections={connections}"));
         }
 
         // Add backup paths
@@ -174,7 +173,7 @@ impl ResticCommand {
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
-        let combined_output = format!("{}\n{}", stdout, stderr).trim().to_string();
+        let combined_output = format!("{stdout}\n{stderr}").trim().to_string();
 
         let success = output.status.success();
         let snapshot_id = if success {
@@ -267,7 +266,7 @@ impl ResticCommand {
         // Add B2 connections if configured
         if let Some(connections) = self.env_vars.get("B2_CONNECTIONS") {
             cmd.arg("--option")
-                .arg(format!("b2.connections={}", connections));
+                .arg(format!("b2.connections={connections}"));
         }
 
         debug!("Executing forget command: {:?}", cmd);
@@ -279,7 +278,7 @@ impl ResticCommand {
 
         if !output.status.success() {
             let error = String::from_utf8_lossy(&output.stderr);
-            anyhow::bail!("Failed to clean up old snapshots: {}", error);
+            anyhow::bail!("Failed to clean up old snapshots: {error}");
         }
 
         info!("Old snapshots cleaned up successfully");
@@ -300,7 +299,7 @@ impl ResticCommand {
         // Add B2 connections if configured
         if let Some(connections) = self.env_vars.get("B2_CONNECTIONS") {
             cmd.arg("--option")
-                .arg(format!("b2.connections={}", connections));
+                .arg(format!("b2.connections={connections}"));
         }
 
         // Add extra arguments
@@ -317,7 +316,7 @@ impl ResticCommand {
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
-        let combined_output = format!("{}\n{}", stdout, stderr).trim().to_string();
+        let combined_output = format!("{stdout}\n{stderr}").trim().to_string();
 
         let success = output.status.success();
 
@@ -359,7 +358,7 @@ impl ResticCommand {
 
         if !output.status.success() {
             let error = String::from_utf8_lossy(&output.stderr);
-            anyhow::bail!("Failed to list snapshots: {}", error);
+            anyhow::bail!("Failed to list snapshots: {error}");
         }
 
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
@@ -383,7 +382,7 @@ impl ResticCommand {
 
         if !output.status.success() {
             let error = String::from_utf8_lossy(&output.stderr);
-            anyhow::bail!("Failed to get repository stats: {}", error);
+            anyhow::bail!("Failed to get repository stats: {error}");
         }
 
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
@@ -403,7 +402,7 @@ impl ResticCommand {
 
         if !output.status.success() {
             let error = String::from_utf8_lossy(&output.stderr);
-            anyhow::bail!("Failed to get snapshot diff: {}", error);
+            anyhow::bail!("Failed to get snapshot diff: {error}");
         }
 
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
@@ -504,14 +503,12 @@ impl ResticCommand {
         let added = added_regex
             .captures(output)
             .and_then(|caps| caps.get(1))
-            .map(|m| m.as_str().trim().to_string())
-            .unwrap_or_else(|| "0 B".to_string());
+            .map_or_else(|| "0 B".to_string(), |m| m.as_str().trim().to_string());
 
         let removed = removed_regex
             .captures(output)
             .and_then(|caps| caps.get(1))
-            .map(|m| m.as_str().trim().to_string())
-            .unwrap_or_else(|| "0 B".to_string());
+            .map_or_else(|| "0 B".to_string(), |m| m.as_str().trim().to_string());
 
         (added, removed)
     }

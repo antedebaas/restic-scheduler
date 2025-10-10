@@ -15,6 +15,20 @@ stats_dir = "/var/log/restic-scheduler"
 # Note: All logging formats always output to stdout. json and logfile formats additionally write to files if stats_dir is configured.
 stats_format = "json"
 
+# Log rotation configuration (applies to files created in stats_dir)
+[global.log_rotation]
+# Maximum size of individual log files before rotation (in MB)
+max_log_size_mb = 100
+
+# Maximum age of log files in days before cleanup (used by built-in cleanup)
+max_log_age_days = 30
+
+# Whether to compress rotated log files using gzip
+compress_rotated = true
+
+# Maximum number of rotated files to keep per log file
+max_rotated_files = 10
+
 # Default profile using Backblaze B2
 [profiles.default]
 repository = "b2:my-backup-bucket"

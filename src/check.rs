@@ -17,7 +17,7 @@ impl CheckOperation {
     pub fn new(config: Config, profile_name: String) -> Result<Self> {
         let profile = config
             .get_profile(&profile_name)
-            .ok_or_else(|| anyhow::anyhow!("Profile '{}' not found", profile_name))?
+            .ok_or_else(|| anyhow::anyhow!("Profile '{profile_name}' not found"))?
             .clone();
 
         let restic = ResticCommand::new(&profile).with_verbosity(config.global.verbosity_level);
@@ -64,7 +64,7 @@ impl CheckOperation {
         let password = match self.profile.get_password().await {
             Ok(pwd) => pwd,
             Err(e) => {
-                let error_msg = format!("Failed to get repository password: {}", e);
+                let error_msg = format!("Failed to get repository password: {e}");
                 let duration = start_time.elapsed().as_secs();
                 self.send_failure_notification(&error_msg, Some(duration))
                     .await;
@@ -83,7 +83,7 @@ impl CheckOperation {
         {
             Ok(result) => result,
             Err(e) => {
-                let error_msg = format!("Repository check command failed: {}", e);
+                let error_msg = format!("Repository check command failed: {e}");
                 error!("{}", error_msg);
                 let duration = start_time.elapsed().as_secs();
                 self.send_failure_notification(&error_msg, Some(duration))
@@ -252,6 +252,7 @@ mod tests {
                 verbosity_level: 1,
                 stats_dir: None,
                 stats_format: crate::config::StatsFormat::Json,
+                log_rotation: crate::config::LogRotationConfig::default(),
             },
             profiles,
         };

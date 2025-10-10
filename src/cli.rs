@@ -142,7 +142,7 @@ impl Cli {
         };
 
         let filter = EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| EnvFilter::new(format!("restic_scheduler={}", level)));
+            .unwrap_or_else(|_| EnvFilter::new(format!("restic_scheduler={level}")));
 
         fmt().with_env_filter(filter).with_target(false).init();
     }
@@ -161,7 +161,7 @@ impl Cli {
     fn determine_profile(&self, config: &Config) -> Result<String> {
         if let Some(ref profile) = self.profile {
             if config.get_profile(profile).is_none() {
-                anyhow::bail!("Profile '{}' not found in configuration", profile);
+                anyhow::bail!("Profile '{profile}' not found in configuration");
             }
             Ok(profile.clone())
         } else if let Some((name, _)) = config.get_default_profile() {
@@ -180,8 +180,8 @@ impl Cli {
 
         // Verify restic is available
         match ResticCommand::check_restic_available().await {
-            Ok(version) => println!("Using restic version: {}", version),
-            Err(e) => anyhow::bail!("Restic not available: {}", e),
+            Ok(version) => println!("Using restic version: {version}"),
+            Err(e) => anyhow::bail!("Restic not available: {e}"),
         }
 
         let backup_op = BackupOperation::new(config, profile_name)?;
@@ -224,7 +224,7 @@ impl Cli {
                 );
                 if !result.success {
                     if let Some(error) = result.error {
-                        println!("    Error: {}", error);
+                        println!("    Error: {error}");
                     }
                 }
             }
@@ -233,11 +233,11 @@ impl Cli {
             let result = check_op.run().await?;
 
             if result.success {
-                println!("Repository check passed for profile '{}'", profile_name);
+                println!("Repository check passed for profile '{profile_name}'");
             } else {
-                println!("Repository check failed for profile '{}'", profile_name);
+                println!("Repository check failed for profile '{profile_name}'");
                 if let Some(error) = result.error {
-                    println!("Error: {}", error);
+                    println!("Error: {error}");
                 }
                 std::process::exit(1);
             }
@@ -254,7 +254,7 @@ impl Cli {
     ) -> Result<()> {
         let profile = config
             .get_profile(&profile_name)
-            .ok_or_else(|| anyhow::anyhow!("Profile '{}' not found", profile_name))?;
+            .ok_or_else(|| anyhow::anyhow!("Profile '{profile_name}' not found"))?;
 
         let restic = ResticCommand::new(profile).with_verbosity(config.global.verbosity_level);
         let password = profile.get_password().await?;
@@ -262,8 +262,8 @@ impl Cli {
         let tags = tag.map(|t| vec![t]);
         let snapshots = restic.list_snapshots(&password, tags.as_deref()).await?;
 
-        println!("Snapshots for profile '{}':", profile_name);
-        println!("{}", snapshots);
+        println!("Snapshots for profile '{profile_name}':");
+        println!("{snapshots}");
 
         Ok(())
     }
@@ -276,14 +276,14 @@ impl Cli {
     ) -> Result<()> {
         let profile = config
             .get_profile(&profile_name)
-            .ok_or_else(|| anyhow::anyhow!("Profile '{}' not found", profile_name))?;
+            .ok_or_else(|| anyhow::anyhow!("Profile '{profile_name}' not found"))?;
 
         let restic = ResticCommand::new(profile).with_verbosity(config.global.verbosity_level);
         let password = profile.get_password().await?;
         let stats = restic.stats(&password, snapshot.as_deref()).await?;
 
-        println!("Repository statistics for profile '{}':", profile_name);
-        println!("{}", stats);
+        println!("Repository statistics for profile '{profile_name}':");
+        println!("{stats}");
 
         Ok(())
     }
@@ -306,18 +306,19 @@ impl Cli {
         let logger = StatsLogger::new(
             config.global.stats_dir.clone(),
             config.global.stats_format.clone(),
-            "all".to_string(),
-        );
+            "stats".to_string(),
+        )
+        .with_rotation_config(config.global.log_rotation.clone());
 
         if let Some(years_to_keep) = cleanup_older_than {
             let removed = logger.cleanup_old_stats(years_to_keep).await?;
-            println!("Cleaned up {} old statistics files", removed);
+            println!("Cleaned up {removed} old statistics files");
             return Ok(());
         }
 
         if year.is_some() || days.is_some() {
             let summary = logger.get_summary(days).await?;
-            println!("{}", summary);
+            println!("{summary}");
         } else {
             let stats = logger.read_stats(year).await?;
 
@@ -404,17 +405,14 @@ impl Cli {
     async fn run_test_connection(&self, config: Config, profile_name: String) -> Result<()> {
         let check_op = CheckOperation::new(config, profile_name.clone())?;
 
-        println!(
-            "Testing connection to repository for profile '{}'...",
-            profile_name
-        );
+        println!("Testing connection to repository for profile '{profile_name}'...");
 
         match check_op.test_connection().await? {
             (true, _) => {
                 println!("Connection successful");
             }
             (false, Some(error_msg)) => {
-                println!("Connection failed: {}", error_msg);
+                println!("Connection failed: {error_msg}");
                 std::process::exit(1);
             }
             (false, None) => {
@@ -431,7 +429,7 @@ impl Cli {
         println!("================");
 
         match ResticCommand::check_restic_available().await {
-            Ok(version) => println!("Restic version: {}", version),
+            Ok(version) => println!("Restic version: {version}"),
             Err(_) => println!("Restic: Not available"),
         }
 
@@ -439,7 +437,7 @@ impl Cli {
         println!("Config exists: {}", self.config.exists());
 
         if let Some(profile) = &self.profile {
-            println!("Selected profile: {}", profile);
+            println!("Selected profile: {profile}");
         }
 
         Ok(())
@@ -467,7 +465,7 @@ impl Cli {
                 let restic =
                     ResticCommand::new(profile).with_verbosity(config.global.verbosity_level);
 
-                print!("  Unlocking profile '{}'... ", profile_name);
+                print!("  Unlocking profile '{profile_name}'... ");
 
                 match profile.get_password().await {
                     Ok(password) => match restic.unlock(&password).await {
@@ -475,12 +473,12 @@ impl Cli {
                             println!("OK");
                         }
                         Err(e) => {
-                            println!("FAILED: {}", e);
+                            println!("FAILED: {e}");
                             failed_profiles.push(profile_name.to_string());
                         }
                     },
                     Err(e) => {
-                        println!("FAILED: {}", e);
+                        println!("FAILED: {e}");
                         failed_profiles.push(profile_name.to_string());
                     }
                 }
@@ -498,19 +496,19 @@ impl Cli {
         } else {
             let profile = config
                 .get_profile(&profile_name)
-                .ok_or_else(|| anyhow::anyhow!("Profile '{}' not found", profile_name))?;
+                .ok_or_else(|| anyhow::anyhow!("Profile '{profile_name}' not found"))?;
 
             let restic = ResticCommand::new(profile).with_verbosity(config.global.verbosity_level);
             let password = profile.get_password().await?;
 
-            println!("Unlocking repository for profile '{}'...", profile_name);
+            println!("Unlocking repository for profile '{profile_name}'...");
 
             match restic.unlock(&password).await {
                 Ok(()) => {
                     println!("Repository unlocked successfully");
                 }
                 Err(e) => {
-                    anyhow::bail!("Failed to unlock repository: {}", e);
+                    anyhow::bail!("Failed to unlock repository: {e}");
                 }
             }
         }

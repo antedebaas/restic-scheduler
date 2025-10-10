@@ -38,9 +38,10 @@ impl NotificationSender {
 
         // Send email notification
         if let Some(ref email_config) = self.config.email {
-            let should_notify_email = match message.success {
-                true => email_config.notify_on_success,
-                false => email_config.notify_on_failure,
+            let should_notify_email = if message.success {
+                email_config.notify_on_success
+            } else {
+                email_config.notify_on_failure
             };
 
             if should_notify_email {
@@ -64,9 +65,10 @@ impl NotificationSender {
 
         // Send webhook notification
         if let Some(ref webhook_config) = self.config.webhook {
-            let should_notify_webhook = match message.success {
-                true => webhook_config.notify_on_success,
-                false => webhook_config.notify_on_failure,
+            let should_notify_webhook = if message.success {
+                webhook_config.notify_on_success
+            } else {
+                webhook_config.notify_on_failure
             };
 
             if should_notify_webhook {
@@ -90,9 +92,10 @@ impl NotificationSender {
 
         // Send command notification
         if let Some(ref command_config) = self.config.command {
-            let should_notify_command = match message.success {
-                true => command_config.notify_on_success,
-                false => command_config.notify_on_failure,
+            let should_notify_command = if message.success {
+                command_config.notify_on_success
+            } else {
+                command_config.notify_on_failure
             };
 
             if should_notify_command {
@@ -117,9 +120,8 @@ impl NotificationSender {
         if notifications_sent == 0 {
             if let Some(error) = last_error {
                 return Err(error);
-            } else {
-                warn!("No notification methods configured");
             }
+            warn!("No notification methods configured");
         }
 
         Ok(())
@@ -160,7 +162,7 @@ impl NotificationSender {
         for recipient in &config.to {
             let to: Mailbox = recipient
                 .parse()
-                .with_context(|| format!("Invalid recipient email: {}", recipient))?;
+                .with_context(|| format!("Invalid recipient email: {recipient}"))?;
             email_builder = email_builder.to(to);
         }
 
@@ -204,7 +206,7 @@ impl NotificationSender {
         debug!("Sending webhook notification to {}", config.url);
 
         let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(config.timeout as u64))
+            .timeout(Duration::from_secs(u64::from(config.timeout)))
             .build()
             .context("Failed to create HTTP client")?;
 
@@ -215,7 +217,7 @@ impl NotificationSender {
             "POST" => client.post(&config.url).json(&payload),
             "PUT" => client.put(&config.url).json(&payload),
             "PATCH" => client.patch(&config.url).json(&payload),
-            method => anyhow::bail!("Unsupported HTTP method: {}", method),
+            method => anyhow::bail!("Unsupported HTTP method: {method}"),
         };
 
         // Add custom headers
@@ -231,7 +233,7 @@ impl NotificationSender {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            anyhow::bail!("Webhook request failed with status {}: {}", status, body);
+            anyhow::bail!("Webhook request failed with status {status}: {body}");
         }
 
         Ok(())
@@ -245,14 +247,14 @@ impl NotificationSender {
         body.push('\n');
         body.push_str(&format!("Profile: {}\n", self.profile_name));
         body.push_str(&format!("Operation: {}\n", message.operation));
-        body.push_str(&format!("Status: {}\n", status));
+        body.push_str(&format!("Status: {status}\n"));
         body.push_str(&format!(
-            "Timestamp: {}\n",
+            "Timestamp: {}",
             message.timestamp.format("%Y-%m-%d %H:%M:%S UTC")
         ));
 
         if let Some(duration) = message.duration {
-            body.push_str(&format!("Duration: {}s\n", duration));
+            body.push_str(&format!("Duration: {duration}s\n"));
         }
 
         body.push('\n');
@@ -342,7 +344,7 @@ impl NotificationSender {
             .stdin(Stdio::null());
 
         // Execute command with timeout
-        let output = timeout(Duration::from_secs(config.timeout as u64), cmd.output())
+        let output = timeout(Duration::from_secs(u64::from(config.timeout)), cmd.output())
             .await
             .context("Command execution timeout")?
             .context("Failed to execute command")?;
@@ -371,8 +373,7 @@ impl NotificationSender {
         self.config
             .webhook
             .as_ref()
-            .map(|w| w.url.contains("hooks.slack.com"))
-            .unwrap_or(false)
+            .is_some_and(|w| w.url.contains("hooks.slack.com"))
     }
 
     /// Format payload specifically for Slack
@@ -397,7 +398,7 @@ impl NotificationSender {
         );
 
         if let Some(duration) = message.duration {
-            text.push_str(&format!(" ({}s)", duration));
+            text.push_str(&format!(" ({duration}s)"));
         }
 
         let mut fields = vec![json!({

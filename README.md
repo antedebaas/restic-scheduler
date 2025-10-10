@@ -9,6 +9,7 @@ Automatic restic backup scheduler. A comprehensive solution for automating resti
 - **Flexible Configuration**: TOML-based configuration with environment variable support
 - **Notification System**: Email, webhook, and custom command notifications for backup success/failure
 - **Statistics Logging**: Track backup performance and history with JSON, stdout, or log file output
+- **Log Rotation**: Automatic log rotation with size limits, compression, and cleanup
 - **Repository Health Checks**: Automated integrity verification
 - **Pre/Post Commands**: Execute custom commands before and after backups
 - **Retention Policies**: Automatic cleanup with configurable retention rules
@@ -223,6 +224,35 @@ tail -f /var/log/restic-scheduler/default.jsonl
 
 ### Logfile Format
 Structured log events saved to profile-named files in the statistics directory. All formats also output to stdout for log aggregation systems like ELK stack or Prometheus.
+
+## Log Rotation
+
+Restic-scheduler provides comprehensive log rotation capabilities to manage log file growth and prevent disk space issues.
+
+### Built-in Log Rotation
+
+Configure automatic log rotation in your `config.toml`:
+
+```toml
+[global]
+stats_dir = "/var/log/restic-scheduler"
+
+# Log rotation configuration
+[global.log_rotation]
+max_log_size_mb = 100        # Rotate when files exceed 100MB
+max_log_age_days = 30        # Clean up files older than 30 days
+compress_rotated = true      # Compress rotated files with gzip
+max_rotated_files = 10       # Keep up to 10 rotated files per log
+```
+
+### Manual Cleanup
+
+You can manually clean up old statistics files using the built-in command:
+
+```bash
+# Clean up statistics older than 2 years
+restic-scheduler stats --cleanup-older-than 2
+```
 
 ### Statistics Commands
 

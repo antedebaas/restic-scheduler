@@ -26,6 +26,52 @@ impl Default for StatsFormat {
     }
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct LogRotationConfig {
+    /// Maximum size of individual log files before rotation (in MB)
+    #[serde(default = "default_max_log_size")]
+    pub max_log_size_mb: u64,
+
+    /// Maximum age of log files in days before cleanup
+    #[serde(default = "default_max_log_age_days")]
+    pub max_log_age_days: u32,
+
+    /// Whether to compress rotated log files
+    #[serde(default = "default_compress_rotated")]
+    pub compress_rotated: bool,
+
+    /// Maximum number of rotated files to keep per log file
+    #[serde(default = "default_max_rotated_files")]
+    pub max_rotated_files: u32,
+}
+
+impl Default for LogRotationConfig {
+    fn default() -> Self {
+        Self {
+            max_log_size_mb: default_max_log_size(),
+            max_log_age_days: default_max_log_age_days(),
+            compress_rotated: default_compress_rotated(),
+            max_rotated_files: default_max_rotated_files(),
+        }
+    }
+}
+
+fn default_max_log_size() -> u64 {
+    100 // 100 MB
+}
+
+fn default_max_log_age_days() -> u32 {
+    30 // 30 days
+}
+
+fn default_compress_rotated() -> bool {
+    true
+}
+
+fn default_max_rotated_files() -> u32 {
+    10
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct GlobalConfig {
     /// Verbosity level from 0-3. 0 means no verbose output.
@@ -39,6 +85,10 @@ pub struct GlobalConfig {
     /// Statistics logging format
     #[serde(default)]
     pub stats_format: StatsFormat,
+
+    /// Log rotation configuration
+    #[serde(default)]
+    pub log_rotation: LogRotationConfig,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -356,7 +406,7 @@ impl Config {
         for (name, profile) in &self.profiles {
             profile
                 .validate()
-                .with_context(|| format!("Invalid configuration for profile '{}'", name))?;
+                .with_context(|| format!("Invalid configuration for profile '{name}'"))?;
         }
 
         Ok(())
@@ -473,11 +523,11 @@ impl ProfileConfig {
             .arg(command)
             .output()
             .await
-            .with_context(|| format!("Failed to execute password command: {}", command))?;
+            .with_context(|| format!("Failed to execute password command: {command}"))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            anyhow::bail!("Password command failed: {}", stderr);
+            anyhow::bail!("Password command failed: {stderr}");
         }
 
         let password = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -653,6 +703,7 @@ mod tests {
                 verbosity_level: 1,
                 stats_dir: None,
                 stats_format: StatsFormat::Json,
+                log_rotation: LogRotationConfig::default(),
             },
             profiles,
         };
