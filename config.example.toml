@@ -6,14 +6,9 @@
 # Verbosity level from 0-3. 0 means minimal output, 3 means very verbose.
 verbosity_level = 1
 
-# Directory for backup statistics logs (used for json and logfile formats)
+# Directory for backup statistics logs (JSON format)
+# Statistics are always logged to stdout, and additionally to JSON Lines files (.jsonl) if stats_dir is configured
 stats_dir = "/var/log/restic-scheduler"
-
-# Statistics logging format - choose one:
-# "json" - Log statistics to JSON Lines files (.jsonl) in stats_dir (also always logs to stdout)
-# "logfile" - Log statistics as structured log events to profile-named log files in stats_dir (also always logs to stdout)
-# Note: All logging formats always output to stdout. json and logfile formats additionally write to files if stats_dir is configured.
-stats_format = "json"
 
 # Log rotation configuration (applies to files created in stats_dir)
 [global.log_rotation]

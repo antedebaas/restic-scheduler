@@ -303,12 +303,8 @@ impl Cli {
         }
 
         // Use a default profile name for stats operations since we're reading all profiles
-        let logger = StatsLogger::new(
-            config.global.stats_dir.clone(),
-            config.global.stats_format.clone(),
-            "stats".to_string(),
-        )
-        .with_rotation_config(config.global.log_rotation.clone());
+        let logger = StatsLogger::new(config.global.stats_dir.clone(), "stats".to_string())
+            .with_rotation_config(config.global.log_rotation.clone());
 
         if let Some(years_to_keep) = cleanup_older_than {
             let removed = logger.cleanup_old_stats(years_to_keep).await?;

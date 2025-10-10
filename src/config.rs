@@ -11,21 +11,6 @@ pub struct Config {
     pub profiles: HashMap<String, ProfileConfig>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum StatsFormat {
-    /// Log statistics to JSON Lines files (.jsonl) (also logs to stdout)
-    Json,
-    /// Log statistics as structured log events to profile-named log files (also logs to stdout)
-    Logfile,
-}
-
-impl Default for StatsFormat {
-    fn default() -> Self {
-        Self::Json
-    }
-}
-
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct LogRotationConfig {
     /// Maximum size of individual log files before rotation (in MB)
@@ -78,13 +63,9 @@ pub struct GlobalConfig {
     #[serde(default = "default_verbosity")]
     pub verbosity_level: u8,
 
-    /// Directory for backup statistics logs (optional for json and logfile formats)
+    /// Directory for backup statistics logs (JSON format)
     /// When specified, statistics will also be written to files in addition to stdout
     pub stats_dir: Option<PathBuf>,
-
-    /// Statistics logging format
-    #[serde(default)]
-    pub stats_format: StatsFormat,
 
     /// Log rotation configuration
     #[serde(default)]
@@ -702,7 +683,6 @@ mod tests {
             global: GlobalConfig {
                 verbosity_level: 1,
                 stats_dir: None,
-                stats_format: StatsFormat::Json,
                 log_rotation: LogRotationConfig::default(),
             },
             profiles,

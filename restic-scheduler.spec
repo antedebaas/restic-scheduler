@@ -1,5 +1,5 @@
 Name:           restic-scheduler
-Version:        0.2.1
+Version:        0.2.2
 Release:        1%{?dist}
 Summary:        Automatic restic backup scheduler
 
@@ -38,17 +38,10 @@ Requires(preun): systemd
 Requires(postun): systemd
 
 %description
-Restic Scheduler is an automatic backup scheduler for restic with TOML-based
-configuration. It provides a comprehensive solution for automating restic
-backups with features including multiple backup profiles, flexible scheduling,
-email and webhook notifications, backup statistics logging, repository health
-checks, and pre/post backup command execution.
-
-Key features include support for multiple backup profiles with individual
-configurations, B2 and S3 backend support with proper credential management,
-retention policy management, comprehensive notification system, backup
-statistics and logging, repository integrity checks, and systemd integration
-for reliable scheduling.
+Automatic restic backup scheduler for automating backups.
+It has support for multiple backup profiles, flexible scheduling,
+email, webhook, and command notifications, backup statistics logging,
+repository health checks, and pre/post backup command execution.
 
 %prep
 %autosetup -n %{name}-%{version}
@@ -72,6 +65,7 @@ install -d %{buildroot}%{_sharedstatedir}/%{name}
 install -d %{buildroot}%{_localstatedir}/log/%{name}
 install -d %{buildroot}%{_unitdir}
 install -d %{buildroot}%{_docdir}/%{name}
+install -d %{buildroot}%{_datadir}/bash-completion/completions
 
 # Install binary
 install -D -m 755 %{_builddir}/%{name}-%{version}/target/release/%{name} %{buildroot}%{_bindir}/%{name}
@@ -91,6 +85,9 @@ install -m 644 README.md %{buildroot}%{_docdir}/%{name}/
 # Install license file
 install -m 644 LICENSE %{buildroot}%{_docdir}/%{name}/
 
+# Install bash completion
+install -m 644 bash-completion/restic-scheduler %{buildroot}%{_datadir}/bash-completion/completions/restic-scheduler
+
 %files
 %license %{_docdir}/%{name}/LICENSE
 %doc %{_docdir}/%{name}/README.md
@@ -103,11 +100,13 @@ install -m 644 LICENSE %{buildroot}%{_docdir}/%{name}/
 %attr(0750,%{name},%{name}) %dir %{_sharedstatedir}/%{name}
 %attr(0750,%{name},%{name}) %dir %{_localstatedir}/log/%{name}
 %attr(0750,%{name},%{name}) %dir %{_sysconfdir}/%{name}
+%{_datadir}/bash-completion/completions/restic-scheduler
 
 %pre
 # Create %{name} user and group
 getent group %{name} >/dev/null || groupadd -r %{name}
-getent passwd %{name} >/dev/null || useradd -r -g %{name} -s /usr/sbin/nologin -M -d %{_sharedstatedir}/%{name} -c "Restic Scheduler Service" %{name}
+getent group backup >/dev/null || groupadd -r backup
+getent passwd %{name} >/dev/null || useradd -r -g %{name} -G backup -s /usr/sbin/nologin -M -d %{_sharedstatedir}/%{name} -c "Restic Scheduler Service" %{name}
 
 %post
 # Ensure proper ownership of directories
@@ -115,6 +114,8 @@ if [ $1 -eq 1 ]; then
     chown -R %{name}:%{name} %{_sharedstatedir}/%{name} %{_localstatedir}/log/%{name} 2>/dev/null || true
     chmod 640 %{_sysconfdir}/%{name}/config.toml 2>/dev/null || true
     chown %{name}:%{name} %{_sysconfdir}/%{name}/config.toml 2>/dev/null || true
+    # Add restic-scheduler user to backup group for privileged access
+    usermod -a -G backup %{name} 2>/dev/null || true
 fi
 # Note: Template units are not enabled by default
 # To enable for a specific profile, run:
@@ -149,9 +150,17 @@ if [ $1 -eq 0 ]; then
     rm -rf %{_localstatedir}/log/%{name}/* 2>/dev/null || true
     getent passwd %{name} >/dev/null && userdel %{name} >/dev/null 2>&1 || true
     getent group %{name} >/dev/null && groupdel %{name} >/dev/null 2>&1 || true
+    # Only remove backup group if no other users depend on it
+    if getent group backup >/dev/null && [ $(getent group backup | cut -d: -f4 | tr ',' '\n' | wc -l) -eq 0 ]; then
+        groupdel backup >/dev/null 2>&1 || true
+    fi
 fi
 
 %changelog
+* Fri Oct 10 2025 Ante de Baas <antedebaas@users.github.com> - 0.1.3-1
+- Added bash completion file
+- removed old logfile implementation.
+
 * Thu Oct 9 2025 Ante de Baas <antedebaas@users.github.com> - 0.1.2-1
 - Fixed a bug in matching current process when checking for running instances.
 

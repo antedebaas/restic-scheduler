@@ -29,14 +29,10 @@ impl BackupOperation {
         let restic = ResticCommand::new(&profile).with_verbosity(config.global.verbosity_level);
 
         // Always create a stats logger since we always log to stdout
-        // Also pass stats_dir for additional file output (json/logfile formats)
+        // Also pass stats_dir for additional JSON file output
         let stats_logger = Some(
-            StatsLogger::new(
-                config.global.stats_dir.clone(),
-                config.global.stats_format.clone(),
-                profile_name.clone(),
-            )
-            .with_rotation_config(config.global.log_rotation.clone()),
+            StatsLogger::new(config.global.stats_dir.clone(), profile_name.clone())
+                .with_rotation_config(config.global.log_rotation.clone()),
         );
 
         let notification_sender =
@@ -435,7 +431,6 @@ mod tests {
             global: crate::config::GlobalConfig {
                 verbosity_level: 1,
                 stats_dir: None,
-                stats_format: crate::config::StatsFormat::Json,
                 log_rotation: crate::config::LogRotationConfig::default(),
             },
             profiles,

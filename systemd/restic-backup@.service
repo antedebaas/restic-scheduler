@@ -8,6 +8,13 @@ Type=oneshot
 User=restic-scheduler
 Group=restic-scheduler
 
+# Grant necessary capabilities for file access
+AmbientCapabilities=CAP_DAC_READ_SEARCH CAP_FOWNER CAP_CHOWN
+CapabilityBoundingSet=CAP_DAC_READ_SEARCH CAP_FOWNER CAP_CHOWN
+
+# Allow access to backup directories through supplementary groups
+SupplementaryGroups=backup
+
 # Backup command with profile
 ExecStart=/usr/bin/restic-scheduler --profile %i backup
 
@@ -17,11 +24,14 @@ IOSchedulingClass=2
 IOSchedulingPriority=7
 
 # Security settings
-NoNewPrivileges=true
+NoNewPrivileges=false
 PrivateTmp=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
+ProtectSystem=false
+ProtectHome=false
+ReadWritePaths=/var/log/restic-scheduler /etc/restic-scheduler
 
 # Timeout settings
 TimeoutStopSec=30

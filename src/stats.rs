@@ -5,20 +5,18 @@ use tokio::fs::{create_dir_all, OpenOptions};
 use tokio::io::AsyncWriteExt;
 use tracing::{debug, info, warn};
 
-use crate::config::{BackupStats, LogRotationConfig, StatsFormat};
+use crate::config::{BackupStats, LogRotationConfig};
 
 pub struct StatsLogger {
     stats_dir: Option<PathBuf>,
-    format: StatsFormat,
     profile_name: String,
     rotation_config: LogRotationConfig,
 }
 
 impl StatsLogger {
-    pub fn new(stats_dir: Option<PathBuf>, format: StatsFormat, profile_name: String) -> Self {
+    pub fn new(stats_dir: Option<PathBuf>, profile_name: String) -> Self {
         Self {
             stats_dir,
-            format,
             profile_name,
             rotation_config: LogRotationConfig::default(),
         }
@@ -29,17 +27,14 @@ impl StatsLogger {
         self
     }
 
-    /// Log backup statistics using the configured format
-    /// Always logs to stdout and additionally to the configured output format
+    /// Log backup statistics in JSON format
+    /// Always logs to stdout and additionally to JSON Lines files if stats_dir is configured
     pub async fn log_stats(&self, stats: &BackupStats) -> Result<()> {
         // Always log to stdout first
         self.log_structured_stdout(stats).await?;
 
-        // Additionally log to configured format
-        match self.format {
-            StatsFormat::Json => self.log_json_lines(stats).await,
-            StatsFormat::Logfile => self.log_structured_file(stats).await,
-        }
+        // Additionally log to JSON Lines files if stats_dir is configured
+        self.log_json_lines(stats).await
     }
 
     /// Log statistics as structured log events to stdout
@@ -54,60 +49,6 @@ impl StatsLogger {
             duration_seconds = stats.duration_seconds,
             "Backup completed"
         );
-        Ok(())
-    }
-
-    /// Log statistics as structured log events to profile-named log file
-    async fn log_structured_file(&self, stats: &BackupStats) -> Result<()> {
-        let stats_dir = if let Some(dir) = self.stats_dir.as_ref() {
-            dir
-        } else {
-            debug!("No stats directory configured, skipping logfile logging");
-            return Ok(());
-        };
-
-        // Ensure the stats directory exists
-        create_dir_all(stats_dir).await.with_context(|| {
-            format!("Failed to create stats directory: {}", stats_dir.display())
-        })?;
-
-        let log_file = stats_dir.join(format!("{}.log", self.profile_name));
-
-        debug!("Logging structured backup stats to: {}", log_file.display());
-
-        // Check if log rotation is needed before writing
-        self.rotate_log_if_needed(&log_file).await?;
-
-        // Open file in append mode
-        let mut file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&log_file)
-            .await
-            .with_context(|| format!("Failed to open stats log file: {}", log_file.display()))?;
-
-        // Write structured log entry
-        let log_entry = format!(
-            "{} INFO profile={} timestamp={} snapshot_id={} added_size=\"{}\" removed_size=\"{}\" total_size=\"{}\" duration_seconds={} msg=\"Backup completed\"\n",
-            chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.6fZ"),
-            self.profile_name,
-            stats.timestamp.format("%Y-%m-%dT%H:%M:%SZ"),
-            stats.snapshot_id,
-            stats.added_size,
-            stats.removed_size,
-            stats.total_size,
-            stats.duration_seconds
-        );
-
-        file.write_all(log_entry.as_bytes())
-            .await
-            .context("Failed to write structured log entry")?;
-
-        file.flush()
-            .await
-            .context("Failed to flush stats log file")?;
-
-        debug!("Structured backup stats logged successfully");
         Ok(())
     }
 
@@ -286,20 +227,11 @@ impl StatsLogger {
 
     /// Read backup statistics from JSON Lines files
     pub async fn read_stats(&self, year: Option<u32>) -> Result<Vec<BackupStats>> {
-        match self.format {
-            StatsFormat::Logfile => {
-                // Cannot read back from structured log files easily
-                warn!("Cannot read stats from Logfile format - structured logs are not easily parseable");
-                Ok(Vec::new())
-            }
-            StatsFormat::Json => {
-                if self.stats_dir.is_none() {
-                    warn!("No stats directory configured, cannot read stats");
-                    return Ok(Vec::new());
-                }
-                self.read_json_lines_stats(year).await
-            }
+        if self.stats_dir.is_none() {
+            warn!("No stats directory configured, cannot read stats");
+            return Ok(Vec::new());
         }
+        self.read_json_lines_stats(year).await
     }
 
     /// Read statistics from JSON Lines files
@@ -417,47 +349,7 @@ impl StatsLogger {
 
     /// Clean up old statistics files (only works for `JsonLines` format)
     pub async fn cleanup_old_stats(&self, keep_years: u32) -> Result<u32> {
-        match self.format {
-            StatsFormat::Logfile => self.cleanup_logfiles(keep_years).await,
-            StatsFormat::Json => self.cleanup_json_lines_files(keep_years).await,
-        }
-    }
-
-    /// Clean up old logfiles
-    async fn cleanup_logfiles(&self, keep_years: u32) -> Result<u32> {
-        let stats_dir = if let Some(dir) = self.stats_dir.as_ref() {
-            dir
-        } else {
-            debug!("No stats directory configured, nothing to clean up");
-            return Ok(0);
-        };
-
-        let cutoff_date = Utc::now() - chrono::Duration::days(i64::from(keep_years * 365));
-        let profile_log = stats_dir.join(format!("{}.log", self.profile_name));
-
-        if profile_log.exists() {
-            let metadata = tokio::fs::metadata(&profile_log).await?;
-            if let Ok(modified) = metadata.modified() {
-                let modified_datetime = chrono::DateTime::<Utc>::from(modified);
-                if modified_datetime < cutoff_date {
-                    match tokio::fs::remove_file(&profile_log).await {
-                        Ok(()) => {
-                            debug!("Removed old log file: {}", profile_log.display());
-                            return Ok(1);
-                        }
-                        Err(e) => {
-                            warn!(
-                                "Failed to remove old log file {}: {}",
-                                profile_log.display(),
-                                e
-                            );
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(0)
+        self.cleanup_json_lines_files(keep_years).await
     }
 
     /// Clean up old JSON Lines statistics files
@@ -571,7 +463,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_structured_logging() {
-        let logger = StatsLogger::new(None, StatsFormat::Json, "test-profile".to_string());
+        let logger = StatsLogger::new(None, "test-profile".to_string());
 
         let stats = BackupStats {
             timestamp: Utc::now(),
@@ -595,7 +487,6 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let logger = StatsLogger::new(
             Some(temp_dir.path().to_path_buf()),
-            StatsFormat::Json,
             "test-profile".to_string(),
         );
 
@@ -622,7 +513,6 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let logger = StatsLogger::new(
             Some(temp_dir.path().to_path_buf()),
-            StatsFormat::Json,
             "test-profile".to_string(),
         );
 
@@ -649,7 +539,6 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let logger = StatsLogger::new(
             Some(temp_dir.path().to_path_buf()),
-            StatsFormat::Json,
             "test-profile".to_string(),
         );
 
@@ -674,7 +563,6 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let logger = StatsLogger::new(
             Some(temp_dir.path().to_path_buf()),
-            StatsFormat::Json,
             "test-profile".to_string(),
         );
 
@@ -699,43 +587,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_structured_logging_cleanup() {
-        let logger = StatsLogger::new(None, StatsFormat::Json, "test-profile".to_string());
+        let logger = StatsLogger::new(None, "test-profile".to_string());
 
         // Should return 0 when no stats_dir is configured (nothing to clean up)
         let removed = logger.cleanup_old_stats(5).await.unwrap();
         assert_eq!(removed, 0);
-    }
-
-    #[tokio::test]
-    async fn test_logfile_format() {
-        let temp_dir = TempDir::new().unwrap();
-        let logger = StatsLogger::new(
-            Some(temp_dir.path().to_path_buf()),
-            StatsFormat::Logfile,
-            "test-profile".to_string(),
-        );
-
-        let stats = BackupStats {
-            timestamp: Utc::now(),
-            snapshot_id: "test123".to_string(),
-            added_size: "1.0 GB".to_string(),
-            removed_size: "0.5 GB".to_string(),
-            total_size: "10.0 GB".to_string(),
-            duration_seconds: 300,
-        };
-
-        // Log stats
-        logger.log_stats(&stats).await.unwrap();
-
-        // Check that log file was created
-        let log_file = temp_dir.path().join("test-profile.log");
-        assert!(log_file.exists());
-
-        // Read and verify content
-        let content = tokio::fs::read_to_string(&log_file).await.unwrap();
-        assert!(content.contains("profile=test-profile"));
-        assert!(content.contains("snapshot_id=test123"));
-        assert!(content.contains("Backup completed"));
     }
 
     #[tokio::test]
@@ -745,7 +601,6 @@ mod tests {
         // Test json format with stats_dir - should log to both stdout and file
         let logger = StatsLogger::new(
             Some(temp_dir.path().to_path_buf()),
-            StatsFormat::Json,
             "test-profile".to_string(),
         );
 
@@ -775,7 +630,7 @@ mod tests {
     #[tokio::test]
     async fn test_dual_logging_without_stats_dir() {
         // Test json format without stats_dir - should only log to stdout
-        let logger = StatsLogger::new(None, StatsFormat::Json, "test-profile".to_string());
+        let logger = StatsLogger::new(None, "test-profile".to_string());
 
         let stats = BackupStats {
             timestamp: chrono::Utc::now(),
@@ -809,15 +664,9 @@ mod tests {
 
         let logger = StatsLogger::new(
             Some(temp_dir.path().to_path_buf()),
-            StatsFormat::Logfile,
             "test-profile".to_string(),
         )
         .with_rotation_config(rotation_config);
-
-        // Create a log file that exceeds the size limit
-        let log_file = temp_dir.path().join("test-profile.log");
-        let large_content = "x".repeat(2 * 1024 * 1024); // 2MB of content
-        tokio::fs::write(&log_file, large_content).await.unwrap();
 
         let stats = BackupStats {
             timestamp: chrono::Utc::now(),
@@ -828,11 +677,17 @@ mod tests {
             duration_seconds: 300,
         };
 
+        // Create a large JSON log file that exceeds the size limit
+        let year = stats.timestamp.format("%Y").to_string();
+        let log_file = temp_dir.path().join(format!("{year}-stats.jsonl"));
+        let large_content = "x".repeat(2 * 1024 * 1024); // 2MB of content
+        tokio::fs::write(&log_file, large_content).await.unwrap();
+
         // This should trigger rotation
         logger.log_stats(&stats).await.unwrap();
 
         // Check that rotation occurred
-        let rotated_file = temp_dir.path().join("test-profile.1.log");
+        let rotated_file = temp_dir.path().join(format!("{year}-stats.1.jsonl"));
         assert!(rotated_file.exists(), "Rotated file should exist");
 
         // Original file should be recreated and smaller
@@ -860,15 +715,9 @@ mod tests {
 
         let logger = StatsLogger::new(
             Some(temp_dir.path().to_path_buf()),
-            StatsFormat::Logfile,
             "test-profile".to_string(),
         )
         .with_rotation_config(rotation_config);
-
-        // Create a log file that exceeds the size limit
-        let log_file = temp_dir.path().join("test-profile.log");
-        let large_content = "This is a test log entry that will be repeated many times to make the file large enough for rotation.\n".repeat(50000);
-        tokio::fs::write(&log_file, large_content).await.unwrap();
 
         let stats = BackupStats {
             timestamp: chrono::Utc::now(),
@@ -879,13 +728,19 @@ mod tests {
             duration_seconds: 300,
         };
 
-        // This should trigger rotation with compression
+        // Create a large JSON log file that exceeds the size limit
+        let year = stats.timestamp.format("%Y").to_string();
+        let log_file = temp_dir.path().join(format!("{year}-stats.jsonl"));
+        let large_content = "x".repeat(2 * 1024 * 1024); // 2MB of content
+        tokio::fs::write(&log_file, large_content).await.unwrap();
+
+        // This should trigger rotation and compression
         logger.log_stats(&stats).await.unwrap();
 
         // Check that compressed rotated file exists
-        let compressed_file = temp_dir.path().join("test-profile.1.log.gz");
+        let compressed_rotated_file = temp_dir.path().join(format!("{year}-stats.1.jsonl.gz"));
         assert!(
-            compressed_file.exists(),
+            compressed_rotated_file.exists(),
             "Compressed rotated file should exist"
         );
 
@@ -913,12 +768,10 @@ mod tests {
 
         let logger = StatsLogger::new(
             Some(temp_dir.path().to_path_buf()),
-            StatsFormat::Logfile,
             "test-profile".to_string(),
         )
         .with_rotation_config(rotation_config);
 
-        let log_file = temp_dir.path().join("test-profile.log");
         let stats = BackupStats {
             timestamp: chrono::Utc::now(),
             snapshot_id: "test123".to_string(),
@@ -928,6 +781,9 @@ mod tests {
             duration_seconds: 300,
         };
 
+        let year = stats.timestamp.format("%Y").to_string();
+        let log_file = temp_dir.path().join(format!("{year}-stats.jsonl"));
+
         // Create large log file and rotate multiple times
         for i in 1..=3 {
             let large_content = format!("Rotation {} - {}", i, "x".repeat(2 * 1024 * 1024));
@@ -936,9 +792,9 @@ mod tests {
         }
 
         // Check that we have the expected rotated files
-        let rotated_1 = temp_dir.path().join("test-profile.1.log");
-        let rotated_2 = temp_dir.path().join("test-profile.2.log");
-        let rotated_3 = temp_dir.path().join("test-profile.3.log");
+        let rotated_1 = temp_dir.path().join(format!("{year}-stats.1.jsonl"));
+        let rotated_2 = temp_dir.path().join(format!("{year}-stats.2.jsonl"));
+        let rotated_3 = temp_dir.path().join(format!("{year}-stats.3.jsonl"));
 
         assert!(rotated_1.exists(), "First rotated file should exist");
         assert!(rotated_2.exists(), "Second rotated file should exist");

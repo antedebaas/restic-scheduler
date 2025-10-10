@@ -251,7 +251,6 @@ mod tests {
             global: crate::config::GlobalConfig {
                 verbosity_level: 1,
                 stats_dir: None,
-                stats_format: crate::config::StatsFormat::Json,
                 log_rotation: crate::config::LogRotationConfig::default(),
             },
             profiles,

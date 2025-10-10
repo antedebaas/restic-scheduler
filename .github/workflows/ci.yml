@@ -305,66 +305,66 @@ jobs:
   #       env:
   #         CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
-  copr-trigger:
-    name: Trigger COPR Build
-    runs-on: ubuntu-latest
-    needs: [release]
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+  # copr-trigger:
+  #   name: Trigger COPR Build
+  #   runs-on: ubuntu-latest
+  #   needs: [release]
+  #   if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
 
-    steps:
-      - name: Extract tag version
-        id: version
-        run: echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+  #   steps:
+  #     - name: Extract tag version
+  #       id: version
+  #       run: echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
 
-      - name: Trigger COPR webhook
-        run: |
-          # Get the tag version
-          TAG_VERSION="${{ steps.version.outputs.tag }}"
+  #     - name: Trigger COPR webhook
+  #       run: |
+  #         # Get the tag version
+  #         TAG_VERSION="${{ steps.version.outputs.tag }}"
 
-          # Create proper GitHub webhook payload format
-          PAYLOAD=$(cat <<EOF
-          {
-            "ref": "${{ github.ref }}",
-            "after": "${{ github.sha }}",
-            "repository": {
-              "clone_url": "${{ github.event.repository.clone_url }}",
-              "full_name": "${{ github.repository }}",
-              "html_url": "${{ github.event.repository.html_url }}"
-            },
-            "head_commit": {
-              "id": "${{ github.sha }}",
-              "message": "Release $TAG_VERSION"
-            },
-            "pusher": {
-              "name": "${{ github.actor }}"
-            }
-          }
-          EOF
-          )
+  #         # Create proper GitHub webhook payload format
+  #         PAYLOAD=$(cat <<EOF
+  #         {
+  #           "ref": "${{ github.ref }}",
+  #           "after": "${{ github.sha }}",
+  #           "repository": {
+  #             "clone_url": "${{ github.event.repository.clone_url }}",
+  #             "full_name": "${{ github.repository }}",
+  #             "html_url": "${{ github.event.repository.html_url }}"
+  #           },
+  #           "head_commit": {
+  #             "id": "${{ github.sha }}",
+  #             "message": "Release $TAG_VERSION"
+  #           },
+  #           "pusher": {
+  #             "name": "${{ github.actor }}"
+  #           }
+  #         }
+  #         EOF
+  #         )
 
-          # Send webhook with proper error handling
-          echo "Sending COPR webhook for $TAG_VERSION..."
-          echo "URL: https://copr.fedorainfracloud.org/webhooks/github/${{ secrets.COPR_PROJECT_ID }}/${{ secrets.COPR_WEBHOOK_KEY }}/${{ vars.PACKAGE_NAME }}/"
+  #         # Send webhook with proper error handling
+  #         echo "Sending COPR webhook for $TAG_VERSION..."
+  #         echo "URL: https://copr.fedorainfracloud.org/webhooks/github/${{ secrets.COPR_PROJECT_ID }}/${{ secrets.COPR_WEBHOOK_KEY }}/${{ vars.PACKAGE_NAME }}/"
 
-          RESPONSE=$(curl -s -w "HTTPSTATUS:%{http_code}" -X POST \
-            -H "Content-Type: application/json" \
-            -H "User-Agent: GitHub-Hookshot" \
-            -H "X-GitHub-Event: push" \
-            -d "$PAYLOAD" \
-            "https://copr.fedorainfracloud.org/webhooks/github/${{ secrets.COPR_PROJECT_ID }}/${{ secrets.COPR_WEBHOOK_KEY }}/${{ vars.PACKAGE_NAME }}/")
+  #         RESPONSE=$(curl -s -w "HTTPSTATUS:%{http_code}" -X POST \
+  #           -H "Content-Type: application/json" \
+  #           -H "User-Agent: GitHub-Hookshot" \
+  #           -H "X-GitHub-Event: push" \
+  #           -d "$PAYLOAD" \
+  #           "https://copr.fedorainfracloud.org/webhooks/github/${{ secrets.COPR_PROJECT_ID }}/${{ secrets.COPR_WEBHOOK_KEY }}/${{ vars.PACKAGE_NAME }}/")
 
-          # Extract HTTP status and body
-          HTTP_STATUS=$(echo $RESPONSE | tr -d '\n' | sed -e 's/.*HTTPSTATUS://')
-          HTTP_BODY=$(echo $RESPONSE | sed -E 's/HTTPSTATUS\:[0-9]{3}$//')
+  #         # Extract HTTP status and body
+  #         HTTP_STATUS=$(echo $RESPONSE | tr -d '\n' | sed -e 's/.*HTTPSTATUS://')
+  #         HTTP_BODY=$(echo $RESPONSE | sed -E 's/HTTPSTATUS\:[0-9]{3}$//')
 
-          echo "HTTP Status: $HTTP_STATUS"
-          echo "Response Body: $HTTP_BODY"
+  #         echo "HTTP Status: $HTTP_STATUS"
+  #         echo "Response Body: $HTTP_BODY"
 
-          # Check for successful response
-          if [ "$HTTP_STATUS" -eq 200 ] || [ "$HTTP_STATUS" -eq 201 ] || [ "$HTTP_STATUS" -eq 202 ]; then
-            echo "SUCCESS: COPR build triggered successfully"
-          else
-            echo "ERROR: COPR webhook failed with status $HTTP_STATUS"
-            echo "Response: $HTTP_BODY"
-            exit 1
-          fi
+  #         # Check for successful response
+  #         if [ "$HTTP_STATUS" -eq 200 ] || [ "$HTTP_STATUS" -eq 201 ] || [ "$HTTP_STATUS" -eq 202 ]; then
+  #           echo "SUCCESS: COPR build triggered successfully"
+  #         else
+  #           echo "ERROR: COPR webhook failed with status $HTTP_STATUS"
+  #           echo "Response: $HTTP_BODY"
+  #           exit 1
+  #         fi

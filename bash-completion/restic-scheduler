@@ -1,0 +1,331 @@
+#!/usr/bin/env bash
+
+# Bash completion for restic-scheduler
+# Place this file in /usr/share/bash-completion/completions/restic-scheduler
+# or source it directly in your shell
+
+_restic_scheduler_completions()
+{
+    local cur prev words cword
+    _init_completion || return
+
+    local commands="backup check snapshots stats backup-stats validate-config list-profiles test-connection info unlock help"
+    local global_opts="-c --config -v --verbose -p --profile -h --help -V --version"
+
+    # Handle command completion
+    if [[ $cword -eq 1 ]]; then
+        COMPREPLY=($(compgen -W "$commands" -- "$cur"))
+        return 0
+    fi
+
+    local command="${words[1]}"
+    
+    case "$command" in
+        backup)
+            case "$prev" in
+                -p|--profile)
+                    # Try to get profiles from config file if possible
+                    local config_file="/etc/restic-scheduler/config.toml"
+                    for ((i=1; i<cword; i++)); do
+                        if [[ "${words[i]}" == "-c" || "${words[i]}" == "--config" ]]; then
+                            config_file="${words[i+1]}"
+                            break
+                        fi
+                    done
+                    if [[ -r "$config_file" ]]; then
+                        local profiles=$(grep -E '^\[profiles\.' "$config_file" 2>/dev/null | sed -E 's/^\[profiles\.([^]]+)\].*/\1/' | tr '\n' ' ')
+                        COMPREPLY=($(compgen -W "$profiles" -- "$cur"))
+                    else
+                        COMPREPLY=($(compgen -W "default" -- "$cur"))
+                    fi
+                    return 0
+                    ;;
+                -c|--config)
+                    _filedir toml
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=($(compgen -W "-h --help $global_opts" -- "$cur"))
+                    return 0
+                    ;;
+            esac
+            ;;
+        check)
+            case "$prev" in
+                -p|--profile)
+                    local config_file="/etc/restic-scheduler/config.toml"
+                    for ((i=1; i<cword; i++)); do
+                        if [[ "${words[i]}" == "-c" || "${words[i]}" == "--config" ]]; then
+                            config_file="${words[i+1]}"
+                            break
+                        fi
+                    done
+                    if [[ -r "$config_file" ]]; then
+                        local profiles=$(grep -E '^\[profiles\.' "$config_file" 2>/dev/null | sed -E 's/^\[profiles\.([^]]+)\].*/\1/' | tr '\n' ' ')
+                        COMPREPLY=($(compgen -W "$profiles" -- "$cur"))
+                    else
+                        COMPREPLY=($(compgen -W "default" -- "$cur"))
+                    fi
+                    return 0
+                    ;;
+                -c|--config)
+                    _filedir toml
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=($(compgen -W "-h --help $global_opts" -- "$cur"))
+                    return 0
+                    ;;
+            esac
+            ;;
+        snapshots)
+            case "$prev" in
+                -t|--tag)
+                    # Common backup tags - user can type their own
+                    COMPREPLY=($(compgen -W "daily-backup weekly-backup monthly-backup automated manual" -- "$cur"))
+                    return 0
+                    ;;
+                -p|--profile)
+                    local config_file="/etc/restic-scheduler/config.toml"
+                    for ((i=1; i<cword; i++)); do
+                        if [[ "${words[i]}" == "-c" || "${words[i]}" == "--config" ]]; then
+                            config_file="${words[i+1]}"
+                            break
+                        fi
+                    done
+                    if [[ -r "$config_file" ]]; then
+                        local profiles=$(grep -E '^\[profiles\.' "$config_file" 2>/dev/null | sed -E 's/^\[profiles\.([^]]+)\].*/\1/' | tr '\n' ' ')
+                        COMPREPLY=($(compgen -W "$profiles" -- "$cur"))
+                    else
+                        COMPREPLY=($(compgen -W "default" -- "$cur"))
+                    fi
+                    return 0
+                    ;;
+                -c|--config)
+                    _filedir toml
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=($(compgen -W "-t --tag -h --help $global_opts" -- "$cur"))
+                    return 0
+                    ;;
+            esac
+            ;;
+        stats)
+            case "$prev" in
+                -p|--profile)
+                    local config_file="/etc/restic-scheduler/config.toml"
+                    for ((i=1; i<cword; i++)); do
+                        if [[ "${words[i]}" == "-c" || "${words[i]}" == "--config" ]]; then
+                            config_file="${words[i+1]}"
+                            break
+                        fi
+                    done
+                    if [[ -r "$config_file" ]]; then
+                        local profiles=$(grep -E '^\[profiles\.' "$config_file" 2>/dev/null | sed -E 's/^\[profiles\.([^]]+)\].*/\1/' | tr '\n' ' ')
+                        COMPREPLY=($(compgen -W "$profiles" -- "$cur"))
+                    else
+                        COMPREPLY=($(compgen -W "default" -- "$cur"))
+                    fi
+                    return 0
+                    ;;
+                -c|--config)
+                    _filedir toml
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=($(compgen -W "-h --help $global_opts" -- "$cur"))
+                    return 0
+                    ;;
+            esac
+            ;;
+        backup-stats)
+            case "$prev" in
+                -y|--year)
+                    local current_year=$(date +%Y)
+                    local years=""
+                    for ((year=2020; year<=current_year; year++)); do
+                        years="$years $year"
+                    done
+                    COMPREPLY=($(compgen -W "$years" -- "$cur"))
+                    return 0
+                    ;;
+                -d|--days)
+                    COMPREPLY=($(compgen -W "1 7 14 30 60 90 365" -- "$cur"))
+                    return 0
+                    ;;
+                --cleanup-older-than)
+                    COMPREPLY=($(compgen -W "1 2 3 5 10" -- "$cur"))
+                    return 0
+                    ;;
+                -p|--profile)
+                    local config_file="/etc/restic-scheduler/config.toml"
+                    for ((i=1; i<cword; i++)); do
+                        if [[ "${words[i]}" == "-c" || "${words[i]}" == "--config" ]]; then
+                            config_file="${words[i+1]}"
+                            break
+                        fi
+                    done
+                    if [[ -r "$config_file" ]]; then
+                        local profiles=$(grep -E '^\[profiles\.' "$config_file" 2>/dev/null | sed -E 's/^\[profiles\.([^]]+)\].*/\1/' | tr '\n' ' ')
+                        COMPREPLY=($(compgen -W "$profiles" -- "$cur"))
+                    else
+                        COMPREPLY=($(compgen -W "default" -- "$cur"))
+                    fi
+                    return 0
+                    ;;
+                -c|--config)
+                    _filedir toml
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=($(compgen -W "-y --year -d --days --cleanup-older-than -h --help $global_opts" -- "$cur"))
+                    return 0
+                    ;;
+            esac
+            ;;
+        validate-config)
+            case "$prev" in
+                -c|--config)
+                    _filedir toml
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=($(compgen -W "-h --help $global_opts" -- "$cur"))
+                    return 0
+                    ;;
+            esac
+            ;;
+        list-profiles)
+            case "$prev" in
+                -c|--config)
+                    _filedir toml
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=($(compgen -W "-h --help $global_opts" -- "$cur"))
+                    return 0
+                    ;;
+            esac
+            ;;
+        test-connection)
+            case "$prev" in
+                -p|--profile)
+                    local config_file="/etc/restic-scheduler/config.toml"
+                    for ((i=1; i<cword; i++)); do
+                        if [[ "${words[i]}" == "-c" || "${words[i]}" == "--config" ]]; then
+                            config_file="${words[i+1]}"
+                            break
+                        fi
+                    done
+                    if [[ -r "$config_file" ]]; then
+                        local profiles=$(grep -E '^\[profiles\.' "$config_file" 2>/dev/null | sed -E 's/^\[profiles\.([^]]+)\].*/\1/' | tr '\n' ' ')
+                        COMPREPLY=($(compgen -W "$profiles" -- "$cur"))
+                    else
+                        COMPREPLY=($(compgen -W "default" -- "$cur"))
+                    fi
+                    return 0
+                    ;;
+                -c|--config)
+                    _filedir toml
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=($(compgen -W "-h --help $global_opts" -- "$cur"))
+                    return 0
+                    ;;
+            esac
+            ;;
+        info)
+            case "$prev" in
+                -p|--profile)
+                    local config_file="/etc/restic-scheduler/config.toml"
+                    for ((i=1; i<cword; i++)); do
+                        if [[ "${words[i]}" == "-c" || "${words[i]}" == "--config" ]]; then
+                            config_file="${words[i+1]}"
+                            break
+                        fi
+                    done
+                    if [[ -r "$config_file" ]]; then
+                        local profiles=$(grep -E '^\[profiles\.' "$config_file" 2>/dev/null | sed -E 's/^\[profiles\.([^]]+)\].*/\1/' | tr '\n' ' ')
+                        COMPREPLY=($(compgen -W "$profiles" -- "$cur"))
+                    else
+                        COMPREPLY=($(compgen -W "default" -- "$cur"))
+                    fi
+                    return 0
+                    ;;
+                -c|--config)
+                    _filedir toml
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=($(compgen -W "-h --help $global_opts" -- "$cur"))
+                    return 0
+                    ;;
+            esac
+            ;;
+        unlock)
+            case "$prev" in
+                -p|--profile)
+                    local config_file="/etc/restic-scheduler/config.toml"
+                    for ((i=1; i<cword; i++)); do
+                        if [[ "${words[i]}" == "-c" || "${words[i]}" == "--config" ]]; then
+                            config_file="${words[i+1]}"
+                            break
+                        fi
+                    done
+                    if [[ -r "$config_file" ]]; then
+                        local profiles=$(grep -E '^\[profiles\.' "$config_file" 2>/dev/null | sed -E 's/^\[profiles\.([^]]+)\].*/\1/' | tr '\n' ' ')
+                        COMPREPLY=($(compgen -W "$profiles" -- "$cur"))
+                    else
+                        COMPREPLY=($(compgen -W "default" -- "$cur"))
+                    fi
+                    return 0
+                    ;;
+                -c|--config)
+                    _filedir toml
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=($(compgen -W "--all-profiles -h --help $global_opts" -- "$cur"))
+                    return 0
+                    ;;
+            esac
+            ;;
+        help)
+            COMPREPLY=($(compgen -W "$commands" -- "$cur"))
+            return 0
+            ;;
+        *)
+            # Handle global options
+            case "$prev" in
+                -c|--config)
+                    _filedir toml
+                    return 0
+                    ;;
+                -p|--profile)
+                    local config_file="/etc/restic-scheduler/config.toml"
+                    for ((i=1; i<cword; i++)); do
+                        if [[ "${words[i]}" == "-c" || "${words[i]}" == "--config" ]]; then
+                            config_file="${words[i+1]}"
+                            break
+                        fi
+                    done
+                    if [[ -r "$config_file" ]]; then
+                        local profiles=$(grep -E '^\[profiles\.' "$config_file" 2>/dev/null | sed -E 's/^\[profiles\.([^]]+)\].*/\1/' | tr '\n' ' ')
+                        COMPREPLY=($(compgen -W "$profiles" -- "$cur"))
+                    else
+                        COMPREPLY=($(compgen -W "default" -- "$cur"))
+                    fi
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=($(compgen -W "$global_opts" -- "$cur"))
+                    return 0
+                    ;;
+            esac
+            ;;
+    esac
+}
+
+complete -F _restic_scheduler_completions restic-scheduler
