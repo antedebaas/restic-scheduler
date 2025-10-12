@@ -212,17 +212,21 @@ impl NotificationSender {
 
         let payload = self.format_webhook_payload(message);
 
+        // Substitute ${report} variables in URL
+        let url = self.substitute_report_variables(&config.url, message);
+
         let mut request = match config.method.to_uppercase().as_str() {
-            "GET" => client.get(&config.url),
-            "POST" => client.post(&config.url).json(&payload),
-            "PUT" => client.put(&config.url).json(&payload),
-            "PATCH" => client.patch(&config.url).json(&payload),
+            "GET" => client.get(&url),
+            "POST" => client.post(&url).json(&payload),
+            "PUT" => client.put(&url).json(&payload),
+            "PATCH" => client.patch(&url).json(&payload),
             method => anyhow::bail!("Unsupported HTTP method: {method}"),
         };
 
-        // Add custom headers
+        // Add custom headers with ${report} variable substitution
         for (key, value) in &config.headers {
-            request = request.header(key, value);
+            let substituted_value = self.substitute_report_variables(value, message);
+            request = request.header(key, substituted_value);
         }
 
         let response = request
@@ -303,6 +307,35 @@ impl NotificationSender {
         payload
     }
 
+    /// Sanitize report data for safe inclusion in notifications
+    fn sanitize_report_data(&self, data: &str) -> String {
+        // Remove potentially dangerous characters and limit length
+        let mut sanitized = data
+            .chars()
+            .filter(|c| c.is_ascii_graphic() || c.is_ascii_whitespace())
+            .take(10000) // Limit to 10KB
+            .collect::<String>();
+
+        // Replace shell-dangerous characters in command contexts
+        // Note: Order matters to avoid double-escaping
+        sanitized = sanitized.replace('\\', "\\\\"); // Must be first
+        sanitized = sanitized.replace('`', "'");
+        sanitized = sanitized.replace('$', "\\$");
+        sanitized = sanitized.replace('"', "\\\"");
+
+        sanitized
+    }
+
+    /// Substitute ${report} variables in a string
+    fn substitute_report_variables(&self, template: &str, message: &NotificationMessage) -> String {
+        if let Some(ref details) = message.details {
+            let sanitized_report = self.sanitize_report_data(details);
+            template.replace("${report}", &sanitized_report)
+        } else {
+            template.replace("${report}", "No details available")
+        }
+    }
+
     /// Execute command notification
     async fn send_command(
         &self,
@@ -314,10 +347,19 @@ impl NotificationSender {
 
         debug!("Executing command notification: {}", config.command);
 
-        let mut cmd = Command::new(&config.command);
+        // Substitute ${report} variables in command
+        let command = self.substitute_report_variables(&config.command, message);
+        let mut cmd = Command::new(&command);
+
+        // Substitute ${report} variables in arguments
+        let substituted_args: Vec<String> = config
+            .args
+            .iter()
+            .map(|arg| self.substitute_report_variables(arg, message))
+            .collect();
 
         // Add arguments
-        cmd.args(&config.args);
+        cmd.args(&substituted_args);
 
         // Set standard environment variables with notification data
         cmd.env("RESTIC_PROFILE", &self.profile_name)
@@ -601,6 +643,64 @@ mod tests {
         assert_eq!(config.timeout, 30);
         assert!(!config.notify_on_success);
         assert!(config.notify_on_failure);
+    }
+
+    #[test]
+    fn test_sanitize_report_data() {
+        let config = NotificationConfig {
+            email: None,
+            webhook: None,
+            command: None,
+        };
+
+        let sender = NotificationSender::new(config, "test".to_string());
+
+        // Test normal data
+        let normal_data = "Added: 1.5 GB\nRemoved: 0.2 GB";
+        let sanitized = sender.sanitize_report_data(normal_data);
+        assert_eq!(sanitized, "Added: 1.5 GB\nRemoved: 0.2 GB");
+
+        // Test dangerous characters
+        let dangerous_data = "echo `rm -rf /`; $USER \"quoted\" \\backslash";
+        let sanitized = sender.sanitize_report_data(dangerous_data);
+        assert_eq!(
+            sanitized,
+            "echo 'rm -rf /'; \\$USER \\\"quoted\\\" \\\\backslash"
+        );
+
+        // Test very long data (should be truncated)
+        let long_data = "x".repeat(20000);
+        let sanitized = sender.sanitize_report_data(&long_data);
+        assert_eq!(sanitized.len(), 10000);
+    }
+
+    #[test]
+    fn test_substitute_report_variables() {
+        let config = NotificationConfig {
+            email: None,
+            webhook: None,
+            command: None,
+        };
+
+        let sender = NotificationSender::new(config, "test".to_string());
+
+        let mut message = create_test_message();
+        message.details = Some("Backup stats: 1.5 GB added".to_string());
+
+        // Test substitution with details
+        let template = "Command with ${report} data";
+        let result = sender.substitute_report_variables(template, &message);
+        assert_eq!(result, "Command with Backup stats: 1.5 GB added data");
+
+        // Test substitution without details
+        message.details = None;
+        let result = sender.substitute_report_variables(template, &message);
+        assert_eq!(result, "Command with No details available data");
+
+        // Test no substitution needed
+        let template = "Command without variables";
+        let result = sender.substitute_report_variables(template, &message);
+        assert_eq!(result, "Command without variables");
     }
 
     #[test]

@@ -126,7 +126,7 @@ use_tls = true
 notify_on_success = false  # Set to true if you want success notifications
 notify_on_failure = true   # Execute command on backup failures
 command = "/usr/local/bin/notify-backup"  # Path to your notification script
-args = ["--profile", "default", "--type", "backup"]  # Arguments to pass
+args = ["--profile", "default", "--type", "backup", "--report", "${report}"]  # Arguments to pass (${report} will be substituted with backup details)
 timeout = 30  # Command timeout in seconds
 
 # S3-compatible backup profile
@@ -187,16 +187,17 @@ notify_on_success = false
 notify_on_failure = true
 
 [profiles.s3-backup.notifications.webhook]
-url = "https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK"
+url = "https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK?report=${report}"  # ${report} can be used in URL
 method = "POST"
 timeout = 30
 # Additional headers (Content-Type: application/json is set automatically)
-headers = { "Authorization" = "Bearer your-token" }
+# ${report} variable can also be used in header values
+headers = { "Authorization" = "Bearer your-token", "X-Report-Data" = "${report}" }
 
 # Command notifications for S3 profile
 [profiles.s3-backup.notifications.command]
 notify_on_success = true   # Notify on successful S3 backups
 notify_on_failure = true   # Notify on failed S3 backups
 command = "/usr/local/bin/s3-backup-notify"
-args = ["--webhook", "--discord"]
+args = ["--webhook", "--discord", "--details", "${report}"]  # ${report} includes backup statistics and details
 timeout = 60

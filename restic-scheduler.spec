@@ -1,5 +1,5 @@
 Name:           restic-scheduler
-Version:        0.2.2
+Version:        0.2.3
 Release:        1%{?dist}
 Summary:        Automatic restic backup scheduler
 
@@ -145,7 +145,7 @@ done
 systemctl daemon-reload
 # Remove user and group on complete removal
 if [ $1 -eq 0 ]; then
-    # Clean up data directories on uninstall
+    # Clean up data directories on uninstallantedebaas@users.github.com> - 0.1.3-1
     rm -rf %{_sharedstatedir}/%{name}/* 2>/dev/null || true
     rm -rf %{_localstatedir}/log/%{name}/* 2>/dev/null || true
     getent passwd %{name} >/dev/null && userdel %{name} >/dev/null 2>&1 || true
@@ -157,6 +157,9 @@ if [ $1 -eq 0 ]; then
 fi
 
 %changelog
+* Sun Oct 12 2025 Ante de Baas <antedebaas@users.github.com> - 0.2.3-1
+- Updated to version 0.2.3
+
 * Fri Oct 10 2025 Ante de Baas <antedebaas@users.github.com> - 0.1.3-1
 - Added bash completion file
 - removed old logfile implementation.
