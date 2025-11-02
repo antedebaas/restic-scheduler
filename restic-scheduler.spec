@@ -1,5 +1,5 @@
 Name:           restic-scheduler
-Version:        0.2.3
+Version:        0.2.4
 Release:        1%{?dist}
 Summary:        Automatic restic backup scheduler
 
@@ -157,6 +157,10 @@ if [ $1 -eq 0 ]; then
 fi
 
 %changelog
+* Sun Nov 02 2025 Ante de Baas <antedebaas@users.github.com> - 0.2.4-1
+- Some code cleanup
+- Improve failure notifications
+
 * Sun Oct 12 2025 Ante de Baas <antedebaas@users.github.com> - 0.2.3-1
 - Updated to version 0.2.3
 

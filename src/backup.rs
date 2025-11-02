@@ -274,8 +274,12 @@ impl BackupOperation {
     /// Send failure notification
     async fn send_failure_notification(&self, error_message: &str, duration: Option<u64>) {
         if let Some(ref sender) = self.notification_sender {
-            let notification =
-                create_backup_notification(false, error_message.to_string(), None, duration);
+            let notification = create_backup_notification(
+                false,
+                error_message.to_string(),
+                Some(error_message.to_string()),
+                duration,
+            );
 
             if let Err(e) = sender.send_notification(notification).await {
                 warn!("Failed to send failure notification: {}", e);
