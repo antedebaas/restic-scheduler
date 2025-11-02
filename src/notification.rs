@@ -299,11 +299,6 @@ impl NotificationSender {
             payload["details"] = json!(details);
         }
 
-        // Add Slack-compatible formatting if this looks like a Slack webhook
-        if self.is_slack_webhook() {
-            payload = self.format_slack_payload(message);
-        }
-
         payload
     }
 
@@ -408,64 +403,6 @@ impl NotificationSender {
         }
 
         Ok(())
-    }
-
-    /// Check if this is likely a Slack webhook
-    fn is_slack_webhook(&self) -> bool {
-        self.config
-            .webhook
-            .as_ref()
-            .is_some_and(|w| w.url.contains("hooks.slack.com"))
-    }
-
-    /// Format payload specifically for Slack
-    fn format_slack_payload(&self, message: &NotificationMessage) -> serde_json::Value {
-        let color = if message.success { "good" } else { "danger" };
-        let status_emoji = if message.success {
-            ":white_check_mark:"
-        } else {
-            ":x:"
-        };
-
-        let mut text = format!(
-            "{} *{}* {} for profile `{}`",
-            status_emoji,
-            message.operation.to_uppercase(),
-            if message.success {
-                "completed successfully"
-            } else {
-                "failed"
-            },
-            self.profile_name
-        );
-
-        if let Some(duration) = message.duration {
-            text.push_str(&format!(" ({duration}s)"));
-        }
-
-        let mut fields = vec![json!({
-            "title": "Message",
-            "value": message.message,
-            "short": false
-        })];
-
-        if let Some(ref details) = message.details {
-            fields.push(json!({
-                "title": "Details",
-                "value": format!("```{}```", details),
-                "short": false
-            }));
-        }
-
-        json!({
-            "attachments": [{
-                "color": color,
-                "text": text,
-                "fields": fields,
-                "footer": "restic-scheduler",
-                "ts": message.timestamp.timestamp()
-            }]
-        })
     }
 }
 
@@ -589,30 +526,6 @@ mod tests {
         assert_eq!(payload["operation"], "backup");
         assert_eq!(payload["success"], true);
         assert_eq!(payload["duration_seconds"], 300);
-    }
-
-    #[test]
-    fn test_slack_payload_formatting() {
-        let mut webhook_config = create_test_webhook_config();
-        webhook_config.url = "https://hooks.slack.com/services/test".to_string();
-
-        let config = NotificationConfig {
-            email: None,
-            webhook: Some(webhook_config),
-            command: None,
-        };
-
-        let sender = NotificationSender::new(config, "test-profile".to_string());
-        let message = create_test_message();
-        let payload = sender.format_slack_payload(&message);
-
-        assert!(payload["attachments"].is_array());
-        let attachment = &payload["attachments"][0];
-        assert_eq!(attachment["color"], "good");
-        assert!(attachment["text"]
-            .as_str()
-            .unwrap()
-            .contains(":white_check_mark:"));
     }
 
     #[test]

@@ -187,7 +187,7 @@ notify_on_success = false
 notify_on_failure = true
 
 [profiles.s3-backup.notifications.webhook]
-url = "https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK?report=${report}"  # ${report} can be used in URL
+url = "https://your-webhook-endpoint.com/notify?report=${report}"  # ${report} can be used in URL
 method = "POST"
 timeout = 30
 # Additional headers (Content-Type: application/json is set automatically)

@@ -107,7 +107,7 @@ use_tls = true
 [profiles.default.notifications.command]
 notify_on_failure = true
 command = "/usr/local/bin/notify-backup"
-args = ["--profile", "default", "--slack"]
+args = ["--profile", "default"]
 timeout = 30
 ```
 
