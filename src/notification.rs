@@ -212,7 +212,7 @@ impl NotificationSender {
 
         let payload = self.format_webhook_payload(message);
 
-        // Substitute ${report} variables in URL
+        // Substitute {{report}} variables in URL
         let url = self.substitute_report_variables(&config.url, message);
 
         let mut request = match config.method.to_uppercase().as_str() {
@@ -223,7 +223,7 @@ impl NotificationSender {
             method => anyhow::bail!("Unsupported HTTP method: {method}"),
         };
 
-        // Add custom headers with ${report} variable substitution
+        // Add custom headers with {{report}} variable substitution
         for (key, value) in &config.headers {
             let substituted_value = self.substitute_report_variables(value, message);
             request = request.header(key, substituted_value);
@@ -321,13 +321,13 @@ impl NotificationSender {
         sanitized
     }
 
-    /// Substitute ${report} variables in a string
+    /// Substitute {{report}} variables in a string
     fn substitute_report_variables(&self, template: &str, message: &NotificationMessage) -> String {
         if let Some(ref details) = message.details {
             let sanitized_report = self.sanitize_report_data(details);
-            template.replace("${report}", &sanitized_report)
+            template.replace("{{report}}", &sanitized_report)
         } else {
-            template.replace("${report}", "No details available")
+            template.replace("{{report}}", "No details available")
         }
     }
 
@@ -342,11 +342,11 @@ impl NotificationSender {
 
         debug!("Executing command notification: {}", config.command);
 
-        // Substitute ${report} variables in command
+        // Substitute {{report}} variables in command
         let command = self.substitute_report_variables(&config.command, message);
         let mut cmd = Command::new(&command);
 
-        // Substitute ${report} variables in arguments
+        // Substitute {{report}} variables in arguments
         let substituted_args: Vec<String> = config
             .args
             .iter()
@@ -601,7 +601,7 @@ mod tests {
         message.details = Some("Backup stats: 1.5 GB added".to_string());
 
         // Test substitution with details
-        let template = "Command with ${report} data";
+        let template = "Command with {{report}} data";
         let result = sender.substitute_report_variables(template, &message);
         assert_eq!(result, "Command with Backup stats: 1.5 GB added data");
 
