@@ -420,14 +420,38 @@ impl ProfileConfig {
         }
 
         if let Some(s3) = &self.backend.s3 {
-            let repo = if let Some(ref path) = s3.bucket_path {
-                format!(
-                    "s3:{}/{}",
-                    s3.bucket.trim_end_matches('/'),
-                    path.trim_start_matches('/')
-                )
+            let repo = if let Some(endpoint) = &s3.endpoint {
+                // For S3-compatible services, include endpoint in repository URL
+                let endpoint = endpoint.trim_end_matches('/');
+                // Add https:// if no scheme is specified
+                let endpoint_with_scheme =
+                    if !endpoint.starts_with("http://") && !endpoint.starts_with("https://") {
+                        format!("https://{}", endpoint)
+                    } else {
+                        endpoint.to_string()
+                    };
+
+                if let Some(ref path) = s3.bucket_path {
+                    format!(
+                        "s3:{}/{}/{}",
+                        endpoint_with_scheme,
+                        s3.bucket.trim_end_matches('/'),
+                        path.trim_start_matches('/')
+                    )
+                } else {
+                    format!("s3:{}/{}", endpoint_with_scheme, s3.bucket)
+                }
             } else {
-                format!("s3:{}", s3.bucket)
+                // For AWS S3 (no endpoint specified), use simple format
+                if let Some(ref path) = s3.bucket_path {
+                    format!(
+                        "s3:{}/{}",
+                        s3.bucket.trim_end_matches('/'),
+                        path.trim_start_matches('/')
+                    )
+                } else {
+                    format!("s3:{}", s3.bucket)
+                }
             };
             return Ok(repo);
         }

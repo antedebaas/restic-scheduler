@@ -75,9 +75,10 @@ The configuration file supports:
 
 ### Example Profile Configuration
 
+#### Backblaze B2 Backend
+
 ```toml
 [profiles.default]
-repository = "b2:my-backup-bucket"
 backup_paths = ["/home", "/etc", "/opt/important-data"]
 backup_tags = ["daily-backup", "automated"]
 encryption_password = "your-secure-password-here"
@@ -85,6 +86,8 @@ encryption_password = "your-secure-password-here"
 [profiles.default.backend.b2]
 account_id = "your-b2-key-id"
 account_key = "your-b2-application-key"
+bucket = "my-backup-bucket"
+bucket_path = "restic"
 connections = 10
 
 [profiles.default.retention]
@@ -103,6 +106,32 @@ smtp_password = "your-app-password"
 from = "your-email@gmail.com"
 to = ["admin@example.com"]
 use_tls = true
+```
+
+#### S3-Compatible Backend
+
+For S3-compatible services (MinIO, Wasabi, etc.), include the endpoint URL with `https://` or `http://` scheme:
+
+```toml
+[profiles.s3-backup]
+backup_paths = ["/home", "/etc", "/var/www"]
+backup_tags = ["s3-backup", "automated"]
+encryption_password_command = "pass show restic/s3-backup"
+
+[profiles.s3-backup.backend.s3]
+access_key_id = "your-access-key-id"
+secret_access_key = "your-secret-access-key"
+region = "us-east-1"
+endpoint = "https://s3.example.com"  # Include https:// or http:// scheme
+bucket = "my-backup-bucket"
+bucket_path = "restic"
+path_style = true  # Required for most S3-compatible services
+
+[profiles.s3-backup.retention]
+days = 30
+weeks = 12
+months = 12
+years = 10
 
 [profiles.default.notifications.command]
 notify_on_failure = true
@@ -110,6 +139,8 @@ command = "/usr/local/bin/notify-backup"
 args = ["--profile", "default"]
 timeout = 30
 ```
+
+**Note**: For AWS S3, you can omit the `endpoint` field. For S3-compatible services, always include the full endpoint URL with the scheme (https:// or http://).
 
 ## Usage
 

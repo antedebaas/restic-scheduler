@@ -682,6 +682,120 @@ mod tests {
 
         let restic_s3_with_path = ResticCommand::new(&profile_s3_with_path).unwrap();
         assert_eq!(restic_s3_with_path.repository, "s3:my-backup-bucket/restic");
+
+        // Test S3-compatible service with endpoint (no bucket_path)
+        let profile_s3_custom_endpoint = ProfileConfig {
+            encryption_password: Some("test".to_string()),
+            encryption_password_command: None,
+            backup_paths: vec![PathBuf::from("/tmp")],
+            backup_tags: vec!["test".to_string()],
+            exclude_patterns: vec![],
+            backup_extra_args: vec![],
+            pre_backup_command: None,
+            retention: RetentionPolicy {
+                hours: 24,
+                days: 7,
+                weeks: 4,
+                months: 12,
+                years: 2,
+            },
+            backend: BackendConfig {
+                b2: None,
+                s3: Some(S3Config {
+                    access_key_id: "test-key-id".to_string(),
+                    secret_access_key: "test-secret".to_string(),
+                    region: "us-east-1".to_string(),
+                    endpoint: Some("https://s3.example.com".to_string()),
+                    bucket: "my-backup-bucket".to_string(),
+                    bucket_path: None,
+                    path_style: true,
+                }),
+            },
+            check: CheckConfig::default(),
+            notifications: NotificationConfig::default(),
+        };
+
+        let restic_s3_custom = ResticCommand::new(&profile_s3_custom_endpoint).unwrap();
+        assert_eq!(
+            restic_s3_custom.repository,
+            "s3:https://s3.example.com/my-backup-bucket"
+        );
+
+        // Test S3-compatible service with endpoint and bucket_path
+        let profile_s3_custom_with_path = ProfileConfig {
+            encryption_password: Some("test".to_string()),
+            encryption_password_command: None,
+            backup_paths: vec![PathBuf::from("/tmp")],
+            backup_tags: vec!["test".to_string()],
+            exclude_patterns: vec![],
+            backup_extra_args: vec![],
+            pre_backup_command: None,
+            retention: RetentionPolicy {
+                hours: 24,
+                days: 7,
+                weeks: 4,
+                months: 12,
+                years: 2,
+            },
+            backend: BackendConfig {
+                b2: None,
+                s3: Some(S3Config {
+                    access_key_id: "test-key-id".to_string(),
+                    secret_access_key: "test-secret".to_string(),
+                    region: "us-east-1".to_string(),
+                    endpoint: Some("https://s3.example.com".to_string()),
+                    bucket: "my-backup-bucket".to_string(),
+                    bucket_path: Some("restic/backups".to_string()),
+                    path_style: true,
+                }),
+            },
+            check: CheckConfig::default(),
+            notifications: NotificationConfig::default(),
+        };
+
+        let restic_s3_custom_path = ResticCommand::new(&profile_s3_custom_with_path).unwrap();
+        assert_eq!(
+            restic_s3_custom_path.repository,
+            "s3:https://s3.example.com/my-backup-bucket/restic/backups"
+        );
+
+        // Test S3-compatible service with endpoint without scheme (should add https://)
+        let profile_s3_no_scheme = ProfileConfig {
+            encryption_password: Some("test".to_string()),
+            encryption_password_command: None,
+            backup_paths: vec![PathBuf::from("/tmp")],
+            backup_tags: vec!["test".to_string()],
+            exclude_patterns: vec![],
+            backup_extra_args: vec![],
+            pre_backup_command: None,
+            retention: RetentionPolicy {
+                hours: 24,
+                days: 7,
+                weeks: 4,
+                months: 12,
+                years: 2,
+            },
+            backend: BackendConfig {
+                b2: None,
+                s3: Some(S3Config {
+                    access_key_id: "test-key-id".to_string(),
+                    secret_access_key: "test-secret".to_string(),
+                    region: "us-east-1".to_string(),
+                    endpoint: Some("s3.example.com".to_string()),
+                    bucket: "my-backup-bucket".to_string(),
+                    bucket_path: Some("restic".to_string()),
+                    path_style: false,
+                }),
+            },
+            check: CheckConfig::default(),
+            notifications: NotificationConfig::default(),
+        };
+
+        let restic_s3_no_scheme = ResticCommand::new(&profile_s3_no_scheme).unwrap();
+        assert_eq!(
+            restic_s3_no_scheme.repository,
+            "s3:https://s3.example.com/my-backup-bucket/restic"
+        );
     }
 
     #[test]
