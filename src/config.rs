@@ -74,12 +74,6 @@ pub struct GlobalConfig {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ProfileConfig {
-    /// Restic repository URL (e.g., "b2:bucket-name", "/path/to/repo", "s3:bucket/path", etc.)
-    pub repository: String,
-
-    /// Optional path to append to the repository URL (e.g., "restic" will be appended as "/restic")
-    pub repository_path: Option<String>,
-
     /// Direct encryption password value (not recommended for production)
     pub encryption_password: Option<String>,
 
@@ -160,6 +154,12 @@ pub struct B2Config {
     /// B2 Application Key
     pub account_key: String,
 
+    /// B2 Bucket name
+    pub bucket: String,
+
+    /// Optional path within the bucket
+    pub bucket_path: Option<String>,
+
     /// Number of concurrent connections to B2
     #[serde(default = "default_b2_connections")]
     pub connections: u32,
@@ -190,6 +190,12 @@ pub struct S3Config {
 
     /// S3 Endpoint URL (for S3-compatible services)
     pub endpoint: Option<String>,
+
+    /// S3 Bucket name
+    pub bucket: String,
+
+    /// Optional path within the bucket
+    pub bucket_path: Option<String>,
 
     /// Use path-style addressing
     #[serde(default)]
@@ -398,12 +404,39 @@ impl Config {
 }
 
 impl ProfileConfig {
-    /// Validate the profile configuration
-    pub fn validate(&self) -> Result<()> {
-        if self.repository.is_empty() {
-            anyhow::bail!("Repository URL cannot be empty");
+    /// Build the repository URL from backend configuration
+    pub fn get_repository_url(&self) -> Result<String> {
+        if let Some(b2) = &self.backend.b2 {
+            let repo = if let Some(ref path) = b2.bucket_path {
+                format!(
+                    "b2:{}:{}",
+                    b2.bucket.trim_end_matches(':'),
+                    path.trim_start_matches(':')
+                )
+            } else {
+                format!("b2:{}", b2.bucket)
+            };
+            return Ok(repo);
         }
 
+        if let Some(s3) = &self.backend.s3 {
+            let repo = if let Some(ref path) = s3.bucket_path {
+                format!(
+                    "s3:{}/{}",
+                    s3.bucket.trim_end_matches('/'),
+                    path.trim_start_matches('/')
+                )
+            } else {
+                format!("s3:{}", s3.bucket)
+            };
+            return Ok(repo);
+        }
+
+        anyhow::bail!("No backend configuration found (B2 or S3 required)")
+    }
+
+    /// Validate the profile configuration
+    pub fn validate(&self) -> Result<()> {
         if self.backup_paths.is_empty() {
             anyhow::bail!("At least one backup path must be specified");
         }
@@ -411,13 +444,44 @@ impl ProfileConfig {
         // Validate password configuration
         self.validate_password()?;
 
-        // Validate backend configuration
-        if self.repository.starts_with("s3:") && self.backend.s3.is_none() {
-            anyhow::bail!("S3 configuration required for S3 repository");
+        // Validate backend configuration - must have exactly one backend
+        let backend_count = [self.backend.b2.is_some(), self.backend.s3.is_some()]
+            .iter()
+            .filter(|&&x| x)
+            .count();
+
+        if backend_count == 0 {
+            anyhow::bail!("At least one backend configuration (B2 or S3) is required");
         }
 
-        if self.repository.starts_with("b2:") && self.backend.b2.is_none() {
-            anyhow::bail!("B2 configuration required for B2 repository");
+        if backend_count > 1 {
+            anyhow::bail!("Only one backend configuration can be specified per profile");
+        }
+
+        // Validate B2 configuration
+        if let Some(b2) = &self.backend.b2 {
+            if b2.bucket.is_empty() {
+                anyhow::bail!("B2 bucket name cannot be empty");
+            }
+            if b2.account_id.is_empty() {
+                anyhow::bail!("B2 account_id cannot be empty");
+            }
+            if b2.account_key.is_empty() {
+                anyhow::bail!("B2 account_key cannot be empty");
+            }
+        }
+
+        // Validate S3 configuration
+        if let Some(s3) = &self.backend.s3 {
+            if s3.bucket.is_empty() {
+                anyhow::bail!("S3 bucket name cannot be empty");
+            }
+            if s3.access_key_id.is_empty() {
+                anyhow::bail!("S3 access_key_id cannot be empty");
+            }
+            if s3.secret_access_key.is_empty() {
+                anyhow::bail!("S3 secret_access_key cannot be empty");
+            }
         }
 
         for path in &self.backup_paths {
@@ -548,8 +612,6 @@ mod tests {
     fn test_password_validation() {
         // Test valid password
         let mut profile = ProfileConfig {
-            repository: "test-repo".to_string(),
-            repository_path: None,
             encryption_password: Some("test-password".to_string()),
             encryption_password_command: None,
             backup_paths: vec![std::path::PathBuf::from("/tmp")],
@@ -564,7 +626,16 @@ mod tests {
                 months: 12,
                 years: 2,
             },
-            backend: BackendConfig::default(),
+            backend: BackendConfig {
+                b2: Some(B2Config {
+                    account_id: "test-id".to_string(),
+                    account_key: "test-key".to_string(),
+                    bucket: "test-bucket".to_string(),
+                    bucket_path: None,
+                    connections: 5,
+                }),
+                s3: None,
+            },
             check: CheckConfig::default(),
             notifications: NotificationConfig::default(),
         };
@@ -600,8 +671,6 @@ mod tests {
     async fn test_get_password() {
         // Test direct password
         let profile = ProfileConfig {
-            repository: "test-repo".to_string(),
-            repository_path: None,
             encryption_password: Some("direct-password".to_string()),
             encryption_password_command: None,
             backup_paths: vec![std::path::PathBuf::from("/tmp")],
@@ -616,7 +685,16 @@ mod tests {
                 months: 12,
                 years: 2,
             },
-            backend: BackendConfig::default(),
+            backend: BackendConfig {
+                b2: Some(B2Config {
+                    account_id: "test-id".to_string(),
+                    account_key: "test-key".to_string(),
+                    bucket: "test-bucket".to_string(),
+                    bucket_path: None,
+                    connections: 5,
+                }),
+                s3: None,
+            },
             check: CheckConfig::default(),
             notifications: NotificationConfig::default(),
         };
@@ -626,8 +704,6 @@ mod tests {
 
         // Test password command (echo should work on most systems)
         let profile_cmd = ProfileConfig {
-            repository: "test-repo".to_string(),
-            repository_path: None,
             encryption_password: None,
             encryption_password_command: Some("echo 'command-password'".to_string()),
             backup_paths: vec![std::path::PathBuf::from("/tmp")],
@@ -642,7 +718,16 @@ mod tests {
                 months: 12,
                 years: 2,
             },
-            backend: BackendConfig::default(),
+            backend: BackendConfig {
+                b2: Some(B2Config {
+                    account_id: "test-id".to_string(),
+                    account_key: "test-key".to_string(),
+                    bucket: "test-bucket".to_string(),
+                    bucket_path: None,
+                    connections: 5,
+                }),
+                s3: None,
+            },
             check: CheckConfig::default(),
             notifications: NotificationConfig::default(),
         };
@@ -657,8 +742,6 @@ mod tests {
         profiles.insert(
             "test".to_string(),
             ProfileConfig {
-                repository: "b2:test-bucket".to_string(),
-                repository_path: None,
                 encryption_password: Some("test-password".to_string()),
                 encryption_password_command: None,
                 backup_paths: vec![PathBuf::from("/tmp")],
@@ -677,6 +760,8 @@ mod tests {
                     b2: Some(B2Config {
                         account_id: "test-id".to_string(),
                         account_key: "test-key".to_string(),
+                        bucket: "test-bucket".to_string(),
+                        bucket_path: None,
                         connections: 10,
                     }),
                     s3: None,
@@ -705,8 +790,6 @@ mod tests {
     #[test]
     fn test_profile_validation() {
         let mut profile = ProfileConfig {
-            repository: "b2:test-bucket".to_string(),
-            repository_path: None,
             encryption_password: Some("test-password".to_string()),
             encryption_password_command: None,
             backup_paths: vec![PathBuf::from("/tmp")],
@@ -725,6 +808,8 @@ mod tests {
                 b2: Some(B2Config {
                     account_id: "test-id".to_string(),
                     account_key: "test-key".to_string(),
+                    bucket: "test-bucket".to_string(),
+                    bucket_path: None,
                     connections: 10,
                 }),
                 s3: None,
@@ -735,12 +820,14 @@ mod tests {
 
         assert!(profile.validate().is_ok());
 
-        // Test empty repository
-        profile.repository = String::new();
+        // Test empty bucket name
+        if let Some(ref mut b2) = profile.backend.b2 {
+            b2.bucket = String::new();
+        }
         assert!(profile.validate().is_err());
 
         // Test empty backup paths
-        profile.repository = "b2:test".to_string();
+        profile.backend.b2.as_mut().unwrap().bucket = "test-bucket".to_string();
         profile.backup_paths.clear();
         assert!(profile.validate().is_err());
     }
@@ -752,7 +839,6 @@ mod tests {
 verbosity_level = 1
 
 [profiles.test]
-repository = "b2:test-bucket"
 backup_paths = ["/tmp/test"]
 backup_tags = ["tag1", "tag2", "tag3"]
 encryption_password = "test-password"
@@ -767,6 +853,7 @@ years = 2
 [profiles.test.backend.b2]
 account_id = "test-id"
 account_key = "test-key"
+bucket = "test-bucket"
 "#;
 
         let config: Config = toml::from_str(config_toml).unwrap();
@@ -782,7 +869,6 @@ account_key = "test-key"
 verbosity_level = 1
 
 [profiles.test]
-repository = "b2:test-bucket"
 backup_paths = ["/tmp/test"]
 encryption_password = "test-password"
 
@@ -796,6 +882,7 @@ years = 2
 [profiles.test.backend.b2]
 account_id = "test-id"
 account_key = "test-key"
+bucket = "test-bucket"
 "#;
 
         let config: Config = toml::from_str(config_toml).unwrap();

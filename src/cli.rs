@@ -256,7 +256,7 @@ impl Cli {
             .get_profile(&profile_name)
             .ok_or_else(|| anyhow::anyhow!("Profile '{profile_name}' not found"))?;
 
-        let restic = ResticCommand::new(profile).with_verbosity(config.global.verbosity_level);
+        let restic = ResticCommand::new(profile)?.with_verbosity(config.global.verbosity_level);
         let password = profile.get_password().await?;
 
         let tags = tag.map(|t| vec![t]);
@@ -278,7 +278,7 @@ impl Cli {
             .get_profile(&profile_name)
             .ok_or_else(|| anyhow::anyhow!("Profile '{profile_name}' not found"))?;
 
-        let restic = ResticCommand::new(profile).with_verbosity(config.global.verbosity_level);
+        let restic = ResticCommand::new(profile)?.with_verbosity(config.global.verbosity_level);
         let password = profile.get_password().await?;
         let stats = restic.stats(&password, snapshot.as_deref()).await?;
 
@@ -369,7 +369,9 @@ impl Cli {
                     .map(|p| p.display().to_string())
                     .collect::<Vec<_>>()
                     .join(", "),
-                profile.repository
+                profile
+                    .get_repository_url()
+                    .unwrap_or_else(|_| "invalid".to_string())
             );
         }
 
@@ -391,7 +393,9 @@ impl Cli {
                 "  {}: {} paths -> {}",
                 profile_name,
                 profile.backup_paths.len(),
-                profile.repository
+                profile
+                    .get_repository_url()
+                    .unwrap_or_else(|_| "invalid".to_string())
             );
         }
 
@@ -459,7 +463,7 @@ impl Cli {
             for profile_name in profile_names {
                 let profile = config.get_profile(profile_name).unwrap();
                 let restic =
-                    ResticCommand::new(profile).with_verbosity(config.global.verbosity_level);
+                    ResticCommand::new(profile)?.with_verbosity(config.global.verbosity_level);
 
                 print!("  Unlocking profile '{profile_name}'... ");
 
@@ -494,7 +498,7 @@ impl Cli {
                 .get_profile(&profile_name)
                 .ok_or_else(|| anyhow::anyhow!("Profile '{profile_name}' not found"))?;
 
-            let restic = ResticCommand::new(profile).with_verbosity(config.global.verbosity_level);
+            let restic = ResticCommand::new(profile)?.with_verbosity(config.global.verbosity_level);
             let password = profile.get_password().await?;
 
             println!("Unlocking repository for profile '{profile_name}'...");

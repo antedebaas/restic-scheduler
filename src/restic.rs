@@ -30,23 +30,15 @@ pub struct CheckResult {
 }
 
 impl ResticCommand {
-    pub fn new(profile: &ProfileConfig) -> Self {
-        // Build repository URL with optional path appended
-        let repository = if let Some(ref path) = profile.repository_path {
-            format!(
-                "{}/{}",
-                profile.repository.trim_end_matches('/'),
-                path.trim_start_matches('/')
-            )
-        } else {
-            profile.repository.clone()
-        };
+    pub fn new(profile: &ProfileConfig) -> Result<Self> {
+        // Build repository URL from backend configuration
+        let repository = profile.get_repository_url()?;
 
-        Self {
+        Ok(Self {
             repository,
             env_vars: profile.get_env_vars(),
             verbosity: 0, // Will be set from global config
-        }
+        })
     }
 
     pub fn with_verbosity(mut self, level: u8) -> Self {
@@ -553,10 +545,10 @@ mod tests {
 
     #[test]
     fn test_repository_path_appending() {
-        // Test without repository_path
-        let profile_without_path = ProfileConfig {
-            repository: "b2:my-bucket".to_string(),
-            repository_path: None,
+        use crate::config::{B2Config, S3Config};
+
+        // Test B2 without bucket_path
+        let profile_b2_without_path = ProfileConfig {
             encryption_password: Some("test".to_string()),
             encryption_password_command: None,
             backup_paths: vec![PathBuf::from("/tmp")],
@@ -571,18 +563,25 @@ mod tests {
                 months: 12,
                 years: 2,
             },
-            backend: BackendConfig::default(),
+            backend: BackendConfig {
+                b2: Some(B2Config {
+                    account_id: "test-id".to_string(),
+                    account_key: "test-key".to_string(),
+                    bucket: "my-bucket".to_string(),
+                    bucket_path: None,
+                    connections: 5,
+                }),
+                s3: None,
+            },
             check: CheckConfig::default(),
             notifications: NotificationConfig::default(),
         };
 
-        let restic = ResticCommand::new(&profile_without_path);
+        let restic = ResticCommand::new(&profile_b2_without_path).unwrap();
         assert_eq!(restic.repository, "b2:my-bucket");
 
-        // Test with repository_path
-        let profile_with_path = ProfileConfig {
-            repository: "s3:my-backup-bucket".to_string(),
-            repository_path: Some("restic".to_string()),
+        // Test B2 with bucket_path (should use colon separator)
+        let profile_b2_with_path = ProfileConfig {
             encryption_password: Some("test".to_string()),
             encryption_password_command: None,
             backup_paths: vec![PathBuf::from("/tmp")],
@@ -597,18 +596,25 @@ mod tests {
                 months: 12,
                 years: 2,
             },
-            backend: BackendConfig::default(),
+            backend: BackendConfig {
+                b2: Some(B2Config {
+                    account_id: "test-id".to_string(),
+                    account_key: "test-key".to_string(),
+                    bucket: "my-bucket".to_string(),
+                    bucket_path: Some("my-path".to_string()),
+                    connections: 5,
+                }),
+                s3: None,
+            },
             check: CheckConfig::default(),
             notifications: NotificationConfig::default(),
         };
 
-        let restic_with_path = ResticCommand::new(&profile_with_path);
-        assert_eq!(restic_with_path.repository, "s3:my-backup-bucket/restic");
+        let restic_b2 = ResticCommand::new(&profile_b2_with_path).unwrap();
+        assert_eq!(restic_b2.repository, "b2:my-bucket:my-path");
 
-        // Test with trailing slash in repository
-        let profile_with_trailing = ProfileConfig {
-            repository: "s3:my-backup-bucket/".to_string(),
-            repository_path: Some("restic".to_string()),
+        // Test S3 without bucket_path
+        let profile_s3_without_path = ProfileConfig {
             encryption_password: Some("test".to_string()),
             encryption_password_command: None,
             backup_paths: vec![PathBuf::from("/tmp")],
@@ -623,18 +629,27 @@ mod tests {
                 months: 12,
                 years: 2,
             },
-            backend: BackendConfig::default(),
+            backend: BackendConfig {
+                b2: None,
+                s3: Some(S3Config {
+                    access_key_id: "test-key-id".to_string(),
+                    secret_access_key: "test-secret".to_string(),
+                    region: "us-east-1".to_string(),
+                    endpoint: None,
+                    bucket: "my-backup-bucket".to_string(),
+                    bucket_path: None,
+                    path_style: false,
+                }),
+            },
             check: CheckConfig::default(),
             notifications: NotificationConfig::default(),
         };
 
-        let restic_trailing = ResticCommand::new(&profile_with_trailing);
-        assert_eq!(restic_trailing.repository, "s3:my-backup-bucket/restic");
+        let restic_s3 = ResticCommand::new(&profile_s3_without_path).unwrap();
+        assert_eq!(restic_s3.repository, "s3:my-backup-bucket");
 
-        // Test with leading slash in repository_path
-        let profile_with_leading = ProfileConfig {
-            repository: "s3:my-backup-bucket".to_string(),
-            repository_path: Some("/restic".to_string()),
+        // Test S3 with bucket_path (should use slash separator)
+        let profile_s3_with_path = ProfileConfig {
             encryption_password: Some("test".to_string()),
             encryption_password_command: None,
             backup_paths: vec![PathBuf::from("/tmp")],
@@ -649,13 +664,24 @@ mod tests {
                 months: 12,
                 years: 2,
             },
-            backend: BackendConfig::default(),
+            backend: BackendConfig {
+                b2: None,
+                s3: Some(S3Config {
+                    access_key_id: "test-key-id".to_string(),
+                    secret_access_key: "test-secret".to_string(),
+                    region: "us-east-1".to_string(),
+                    endpoint: None,
+                    bucket: "my-backup-bucket".to_string(),
+                    bucket_path: Some("restic".to_string()),
+                    path_style: false,
+                }),
+            },
             check: CheckConfig::default(),
             notifications: NotificationConfig::default(),
         };
 
-        let restic_leading = ResticCommand::new(&profile_with_leading);
-        assert_eq!(restic_leading.repository, "s3:my-backup-bucket/restic");
+        let restic_s3_with_path = ResticCommand::new(&profile_s3_with_path).unwrap();
+        assert_eq!(restic_s3_with_path.repository, "s3:my-backup-bucket/restic");
     }
 
     #[test]

@@ -26,8 +26,6 @@ max_rotated_files = 10
 
 # Default profile using Backblaze B2
 [profiles.default]
-repository = "b2:my-backup-bucket"
-repository_path = "restic"
 backup_paths = [
     "/home",
     "/etc",
@@ -100,6 +98,8 @@ years = 5     # Keep yearly backups for 5 years
 [profiles.default.backend.b2]
 account_id = "your-b2-key-id"
 account_key = "your-b2-application-key"
+bucket = "my-backup-bucket"
+bucket_path = "restic"
 connections = 10  # Number of concurrent connections
 
 # Repository check settings (always full verification)
@@ -132,8 +132,6 @@ timeout = 30  # Command timeout in seconds
 
 # S3-compatible backup profile
 [profiles.s3-backup]
-repository = "s3:my-backup-bucket"
-repository_path = "restic"
 backup_paths = [
     "/home/user/documents",
     "/home/user/pictures",
@@ -177,6 +175,8 @@ access_key_id = "your-access-key-id"
 secret_access_key = "your-secret-access-key"
 region = "us-east-1"
 endpoint = "https://s3.example.com"  # Your S3-compatible service endpoint
+bucket = "my-backup-bucket"
+bucket_path = "restic"
 path_style = true  # Set to true for S3-compatible services that require path-style
 
 [profiles.s3-backup.check]

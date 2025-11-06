@@ -26,7 +26,7 @@ impl BackupOperation {
             .ok_or_else(|| anyhow::anyhow!("Profile '{profile_name}' not found"))?
             .clone();
 
-        let restic = ResticCommand::new(&profile).with_verbosity(config.global.verbosity_level);
+        let restic = ResticCommand::new(&profile)?.with_verbosity(config.global.verbosity_level);
 
         // Always create a stats logger since we always log to stdout
         // Also pass stats_dir for additional JSON file output
@@ -403,8 +403,6 @@ mod tests {
         profiles.insert(
             "default".to_string(),
             crate::config::ProfileConfig {
-                repository: "b2:test-bucket".to_string(),
-                repository_path: None,
                 encryption_password: Some("test-password".to_string()),
                 encryption_password_command: None,
                 backup_paths: vec![temp_dir.path().to_path_buf()],
@@ -423,6 +421,8 @@ mod tests {
                     b2: Some(crate::config::B2Config {
                         account_id: "test-id".to_string(),
                         account_key: "test-key".to_string(),
+                        bucket: "test-bucket".to_string(),
+                        bucket_path: None,
                         connections: 10,
                     }),
                     s3: None,
