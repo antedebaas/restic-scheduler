@@ -31,8 +31,19 @@ pub struct CheckResult {
 
 impl ResticCommand {
     pub fn new(profile: &ProfileConfig) -> Self {
+        // Build repository URL with optional path appended
+        let repository = if let Some(ref path) = profile.repository_path {
+            format!(
+                "{}/{}",
+                profile.repository.trim_end_matches('/'),
+                path.trim_start_matches('/')
+            )
+        } else {
+            profile.repository.clone()
+        };
+
         Self {
-            repository: profile.repository.clone(),
+            repository,
             env_vars: profile.get_env_vars(),
             verbosity: 0, // Will be set from global config
         }
@@ -526,7 +537,11 @@ impl ResticCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::{
+        BackendConfig, CheckConfig, NotificationConfig, ProfileConfig, RetentionPolicy,
+    };
     use std::collections::HashMap;
+    use std::path::PathBuf;
 
     fn create_test_restic_command() -> ResticCommand {
         ResticCommand {
@@ -534,6 +549,113 @@ mod tests {
             env_vars: HashMap::new(),
             verbosity: 1,
         }
+    }
+
+    #[test]
+    fn test_repository_path_appending() {
+        // Test without repository_path
+        let profile_without_path = ProfileConfig {
+            repository: "b2:my-bucket".to_string(),
+            repository_path: None,
+            encryption_password: Some("test".to_string()),
+            encryption_password_command: None,
+            backup_paths: vec![PathBuf::from("/tmp")],
+            backup_tags: vec!["test".to_string()],
+            exclude_patterns: vec![],
+            backup_extra_args: vec![],
+            pre_backup_command: None,
+            retention: RetentionPolicy {
+                hours: 24,
+                days: 7,
+                weeks: 4,
+                months: 12,
+                years: 2,
+            },
+            backend: BackendConfig::default(),
+            check: CheckConfig::default(),
+            notifications: NotificationConfig::default(),
+        };
+
+        let restic = ResticCommand::new(&profile_without_path);
+        assert_eq!(restic.repository, "b2:my-bucket");
+
+        // Test with repository_path
+        let profile_with_path = ProfileConfig {
+            repository: "s3:my-backup-bucket".to_string(),
+            repository_path: Some("restic".to_string()),
+            encryption_password: Some("test".to_string()),
+            encryption_password_command: None,
+            backup_paths: vec![PathBuf::from("/tmp")],
+            backup_tags: vec!["test".to_string()],
+            exclude_patterns: vec![],
+            backup_extra_args: vec![],
+            pre_backup_command: None,
+            retention: RetentionPolicy {
+                hours: 24,
+                days: 7,
+                weeks: 4,
+                months: 12,
+                years: 2,
+            },
+            backend: BackendConfig::default(),
+            check: CheckConfig::default(),
+            notifications: NotificationConfig::default(),
+        };
+
+        let restic_with_path = ResticCommand::new(&profile_with_path);
+        assert_eq!(restic_with_path.repository, "s3:my-backup-bucket/restic");
+
+        // Test with trailing slash in repository
+        let profile_with_trailing = ProfileConfig {
+            repository: "s3:my-backup-bucket/".to_string(),
+            repository_path: Some("restic".to_string()),
+            encryption_password: Some("test".to_string()),
+            encryption_password_command: None,
+            backup_paths: vec![PathBuf::from("/tmp")],
+            backup_tags: vec!["test".to_string()],
+            exclude_patterns: vec![],
+            backup_extra_args: vec![],
+            pre_backup_command: None,
+            retention: RetentionPolicy {
+                hours: 24,
+                days: 7,
+                weeks: 4,
+                months: 12,
+                years: 2,
+            },
+            backend: BackendConfig::default(),
+            check: CheckConfig::default(),
+            notifications: NotificationConfig::default(),
+        };
+
+        let restic_trailing = ResticCommand::new(&profile_with_trailing);
+        assert_eq!(restic_trailing.repository, "s3:my-backup-bucket/restic");
+
+        // Test with leading slash in repository_path
+        let profile_with_leading = ProfileConfig {
+            repository: "s3:my-backup-bucket".to_string(),
+            repository_path: Some("/restic".to_string()),
+            encryption_password: Some("test".to_string()),
+            encryption_password_command: None,
+            backup_paths: vec![PathBuf::from("/tmp")],
+            backup_tags: vec!["test".to_string()],
+            exclude_patterns: vec![],
+            backup_extra_args: vec![],
+            pre_backup_command: None,
+            retention: RetentionPolicy {
+                hours: 24,
+                days: 7,
+                weeks: 4,
+                months: 12,
+                years: 2,
+            },
+            backend: BackendConfig::default(),
+            check: CheckConfig::default(),
+            notifications: NotificationConfig::default(),
+        };
+
+        let restic_leading = ResticCommand::new(&profile_with_leading);
+        assert_eq!(restic_leading.repository, "s3:my-backup-bucket/restic");
     }
 
     #[test]

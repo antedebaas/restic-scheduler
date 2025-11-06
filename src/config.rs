@@ -77,6 +77,9 @@ pub struct ProfileConfig {
     /// Restic repository URL (e.g., "b2:bucket-name", "/path/to/repo", "s3:bucket/path", etc.)
     pub repository: String,
 
+    /// Optional path to append to the repository URL (e.g., "restic" will be appended as "/restic")
+    pub repository_path: Option<String>,
+
     /// Direct encryption password value (not recommended for production)
     pub encryption_password: Option<String>,
 
@@ -546,6 +549,7 @@ mod tests {
         // Test valid password
         let mut profile = ProfileConfig {
             repository: "test-repo".to_string(),
+            repository_path: None,
             encryption_password: Some("test-password".to_string()),
             encryption_password_command: None,
             backup_paths: vec![std::path::PathBuf::from("/tmp")],
@@ -597,6 +601,7 @@ mod tests {
         // Test direct password
         let profile = ProfileConfig {
             repository: "test-repo".to_string(),
+            repository_path: None,
             encryption_password: Some("direct-password".to_string()),
             encryption_password_command: None,
             backup_paths: vec![std::path::PathBuf::from("/tmp")],
@@ -622,6 +627,7 @@ mod tests {
         // Test password command (echo should work on most systems)
         let profile_cmd = ProfileConfig {
             repository: "test-repo".to_string(),
+            repository_path: None,
             encryption_password: None,
             encryption_password_command: Some("echo 'command-password'".to_string()),
             backup_paths: vec![std::path::PathBuf::from("/tmp")],
@@ -652,6 +658,7 @@ mod tests {
             "test".to_string(),
             ProfileConfig {
                 repository: "b2:test-bucket".to_string(),
+                repository_path: None,
                 encryption_password: Some("test-password".to_string()),
                 encryption_password_command: None,
                 backup_paths: vec![PathBuf::from("/tmp")],
@@ -699,6 +706,7 @@ mod tests {
     fn test_profile_validation() {
         let mut profile = ProfileConfig {
             repository: "b2:test-bucket".to_string(),
+            repository_path: None,
             encryption_password: Some("test-password".to_string()),
             encryption_password_command: None,
             backup_paths: vec![PathBuf::from("/tmp")],

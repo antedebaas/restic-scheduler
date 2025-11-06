@@ -1,5 +1,5 @@
 Name:           restic-scheduler
-Version:        0.2.5
+Version:        0.3.0
 Release:        1%{?dist}
 Summary:        Automatic restic backup scheduler
 
@@ -157,6 +157,9 @@ if [ $1 -eq 0 ]; then
 fi
 
 %changelog
+* Thu Nov 06 2025 Ante de Baas <antedebaas@users.github.com> - 0.3.0-1
+- Allow a path to be appended to the bucket url so multiple services can use the same bucket.
+
 * Thu Nov 06 2025 Ante de Baas <antedebaas@users.github.com> - 0.2.5-1
 - Change variable syntax from ${report} to {{report}}
 

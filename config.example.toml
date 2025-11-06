@@ -27,6 +27,7 @@ max_rotated_files = 10
 # Default profile using Backblaze B2
 [profiles.default]
 repository = "b2:my-backup-bucket"
+repository_path = "restic"
 backup_paths = [
     "/home",
     "/etc",
@@ -131,7 +132,8 @@ timeout = 30  # Command timeout in seconds
 
 # S3-compatible backup profile
 [profiles.s3-backup]
-repository = "s3:my-backup-bucket/restic"
+repository = "s3:my-backup-bucket"
+repository_path = "restic"
 backup_paths = [
     "/home/user/documents",
     "/home/user/pictures",

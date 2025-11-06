@@ -404,6 +404,7 @@ mod tests {
             "default".to_string(),
             crate::config::ProfileConfig {
                 repository: "b2:test-bucket".to_string(),
+                repository_path: None,
                 encryption_password: Some("test-password".to_string()),
                 encryption_password_command: None,
                 backup_paths: vec![temp_dir.path().to_path_buf()],
