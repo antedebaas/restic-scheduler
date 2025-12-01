@@ -18,6 +18,7 @@ anyhow = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4.4", features = ["derive"] }
 flate2 = "1.0"
+landlock = { version = "0.3", optional = true }
 lettre = { version = "0.11", features = ["tokio1-rustls-tls", "smtp-transport", "builder"], default-features = false }
 regex = "1.10"
 reqwest = { version = "0.11", features = ["json", "rustls-tls"], default-features = false }
@@ -28,7 +29,6 @@ tokio = { version = "1.0", features = ["full"] }
 toml = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-landlock = { version = "0.3", optional = true }
 
 [dev-dependencies]
 tempfile = "3.8"
