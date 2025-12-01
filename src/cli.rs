@@ -6,6 +6,7 @@ use crate::backup::{is_backup_running, BackupOperation};
 use crate::check::{check_all_profiles, CheckOperation};
 use crate::config::Config;
 use crate::restic::ResticCommand;
+use crate::sandboxing::apply_landlock_restrictions;
 use crate::stats::StatsLogger;
 
 #[derive(Debug, Parser)]
@@ -97,6 +98,10 @@ impl Cli {
 
         // Load configuration
         let config = self.load_config().await?;
+
+        // Apply landlock sandboxing based on configuration paths
+        // This restricts filesystem access to only what's needed
+        apply_landlock_restrictions(&config)?;
 
         // Determine which profile to use
         let profile_name = self.determine_profile(&config)?;

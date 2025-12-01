@@ -7,6 +7,7 @@ mod cli;
 mod config;
 mod notification;
 mod restic;
+mod sandboxing;
 mod stats;
 
 use cli::Cli;

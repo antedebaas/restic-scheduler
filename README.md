@@ -15,6 +15,7 @@ It has support for multiple backup profiles, flexible scheduling, email, webhook
 - **Pre/Post Commands**: Execute custom commands before and after backups
 - **Retention Policies**: Automatic cleanup with configurable retention rules
 - **Systemd Integration**: Native systemd service and timer support with capability-based privilege management
+- **Sandboxing**: Landlock-based filesystem access restrictions for enhanced security
 - **Concurrent Operations**: Efficient multi-threaded backup operations
 - **Process Management**: Skip backups if another restic process is running
 
@@ -384,12 +385,51 @@ restic-scheduler backup-stats --cleanup-older-than 3
 
 ## Security Considerations
 
+### Sandboxing
+
+Restic Scheduler includes built-in sandboxing using Linux's Landlock security module (available since kernel 5.13). This feature restricts filesystem access to only the paths required for operation, providing defense-in-depth security.
+
+#### How Sandboxing Works
+
+When sandboxing is enabled (default), the application automatically restricts its own filesystem access to:
+
+- **Read-write access**: `global.stats_dir` for writing backup statistics
+- **Read-only access**: All `backup_paths` configured in profiles
+- **Execute access**: 
+  - Notification commands (`profiles.*.notifications.command`)
+  - Pre-backup commands (`profiles.*.pre_backup_command`)
+  - System binaries like `restic`
+  - Common system paths (`/usr/bin`, `/lib`, `/etc`, etc.)
+
+The sandboxing is applied after loading the configuration but before executing any operations, ensuring that even if a vulnerability is exploited, filesystem access remains restricted.
+
+#### Feature Flag
+
+Sandboxing is enabled by default but can be disabled at compile time if needed:
+
+```bash
+# Build without sandboxing
+cargo build --release --no-default-features
+
+# Build with sandboxing (default)
+cargo build --release
+```
+
+#### Kernel Support
+
+- **Supported**: Linux kernel 5.13 or later with Landlock enabled
+- **Graceful fallback**: On older kernels or when Landlock is unavailable, the application continues to work normally without sandboxing restrictions
+- **Status logging**: The application logs whether sandboxing is fully enforced, partially enforced, or not available
+
+#### Security Best Practices
+
 - Store encryption passwords securely using external commands
 - Use application-specific passwords for email notifications
 - Restrict configuration file permissions (640 recommended)
 - Run as dedicated user (restic-scheduler) with minimal privileges
 - Use Linux capabilities instead of running as root
 - Configure backup group permissions for protected directories
+- Keep kernel updated to ensure Landlock support
 - Regularly test backup restoration procedures
 - Monitor backup success/failure notifications
 - Review systemd service security settings periodically
