@@ -1,14 +1,15 @@
 Name:           restic-scheduler
 Version:        0.3.0
-Release:        2%{?dist}
+Release:        3%{?dist}
 Summary:        Automatic restic backup scheduler
 
 License:        GPL-3.0-only
 URL:            https://github.com/antedebaas/%{name}
 Source0:        https://github.com/antedebaas/%{name}/archive/v%{version}/%{name}-%{version}.tar.gz
 
-Provides:       group(restic-scheduler)
 Provides:       user(restic-scheduler)
+Provides:       group(restic-scheduler)
+Provides:       group(restic-backups)
 
 BuildRequires:  rust >= 1.70
 BuildRequires:  cargo
@@ -108,8 +109,8 @@ install -m 644 bash-completion/restic-scheduler %{buildroot}%{_datadir}/bash-com
 %pre
 # Create %{name} user and group
 getent group %{name} >/dev/null || groupadd -r %{name}
-getent group backup >/dev/null || groupadd -r backup
-getent passwd %{name} >/dev/null || useradd -r -g %{name} -G backup -s /usr/sbin/nologin -M -d %{_sharedstatedir}/%{name} -c "Restic Scheduler Service" %{name}
+getent group restic-backups >/dev/null || groupadd -r restic-backups
+getent passwd %{name} >/dev/null || useradd -r -g %{name} -G restic-backups -s /usr/sbin/nologin -M -d %{_sharedstatedir}/%{name} -c "Restic Scheduler Service" %{name}
 
 %post
 # Ensure proper ownership of directories
@@ -160,8 +161,11 @@ if [ $1 -eq 0 ]; then
 fi
 
 %changelog
+* Sun Dev 14 2025 Ante de Baas <antedebaas@users.github.com> - 0.3.0-3
+- Provide restic-backups group
+
 * Sun Dev 14 2025 Ante de Baas <antedebaas@users.github.com> - 0.3.0-2
-- add rpm Provides for user and group
+- Add rpm Provides for user and group
 
 * Thu Nov 06 2025 Ante de Baas <antedebaas@users.github.com> - 0.3.0-1
 - Allow a path to be appended to the bucket url so multiple services can use the same bucket.
