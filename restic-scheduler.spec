@@ -1,11 +1,14 @@
 Name:           restic-scheduler
 Version:        0.3.0
-Release:        1%{?dist}
+Release:        2%{?dist}
 Summary:        Automatic restic backup scheduler
 
 License:        GPL-3.0-only
 URL:            https://github.com/antedebaas/%{name}
 Source0:        https://github.com/antedebaas/%{name}/archive/v%{version}/%{name}-%{version}.tar.gz
+
+Provides:       group(restic-scheduler)
+Provides:       user(restic-scheduler)
 
 BuildRequires:  rust >= 1.70
 BuildRequires:  cargo
@@ -157,6 +160,9 @@ if [ $1 -eq 0 ]; then
 fi
 
 %changelog
+* Sun Dev 14 2025 Ante de Baas <antedebaas@users.github.com> - 0.3.0-2
+- add rpm Provides for user and group
+
 * Thu Nov 06 2025 Ante de Baas <antedebaas@users.github.com> - 0.3.0-1
 - Allow a path to be appended to the bucket url so multiple services can use the same bucket.
 
